@@ -1,109 +1,318 @@
-# SO-project2
+# 2º Exercício | _Message Broker_
 
-O projeto ngm quer saber
+O segundo exercício do projeto pretende construir um sistema simples de publicação e subscrição de mensagens, que são armazenadas no sistema de ficheiros TecnicoFS.
+O sistema vai ter um processo servidor autónomo, ao qual diferentes processos clientes se podem ligar, para publicar ou receber mensagens numa dada caixa de armazenamento de mensagens.
 
-# Welcome to the new world.
+## Ponto de partida
 
-My name is Jackson Stone. I am 19 years old, and this is the story of events that led to the near death of the human race.
+Para resolver o segundo exercício, os grupos devem usar como base a sua solução do 1º exercício ou [aceder ao novo código base](https://github.com/tecnico-so/projeto-so-2022-23/), que estende a versão original do TecnicoFS das seguintes maneiras:
 
-13 years ago, our government went to war with many others of the world. But what they didn’t tell us, was that they had a secret biological weapon developed and perfected over many years. This virus, as they were calling it, was responsible for infecting, and over time, turning people and animals into horrific monstrosities of their former selves. The government, our government in the United States, was responsible for the following outcome of the war.
+- As operações principais do TecnicoFS estão sincronizadas usando um único trinco (_mutex_) global.
+  Embora menos paralela que a solução pretendida para o primeiro exercício, esta solução de sincronização é suficiente para implementar os novos requisitos;
+- É implementado a operação `tfs_unlink`, que permite remover ficheiros.
 
-The war started in the year 2022, when the United States invaded multiple countries. Our government thought it was the best possible course of action, to invade all our enemies at once. They dictated their soldiers to invade North Korea, China, and many other countries at once in a surprise attack on those who were considered enemies. While the infantry was keeping enemy troops in check and occupied, the government sanctioned a private science sector, known as A.D.B. otherwise known as the American Department of Bioweapons. This department was sanctioned for the sole purpose of using a deadly virus to make a bioweapon.
+Adicionalmente, o código base inclui esqueletos para:
 
-This virus was known as Hyproxis. No one knew about this virus until The Invasions, as this virus is not of human creation. No, this virus came from space. There was an asteroid crash in the Northern Hemisphere in the early 2000’s. This virus has been known to turn anything into a monstrosity of their former self. It affected animals and humans alike, regardless of genes or breed.
+1. O programa do servidor _mbroker_ (na diretoria `mbroker`);
+2. A implementação do cliente para publicação (na diretoria `publisher`);
+3. A implementação do cliente para subscrição (na diretoria `subscriber`);
+4. A implementação do cliente de gestão (directoria `manager`).
 
-The scientists behind this program, working for the A.D.B, were responsible for weaponizing Hyproxis. They replicated it in laboratories, using small amounts from the chunk of asteroid it came from. The scientists would then dilute Hyproxis and put it into droppable gas bombs. While the U.S. troops were holding off enemy soldiers, the gas bombs would be silently dropped in areas to infect enemy soldiers. Hyproxis, which would enrage and infect anyone who came into contact with it, was quite deadly as it would turn people on one another.
+Em vez do novo código base, os grupos que tenham uma solução robusta no 1º exercício são encorajados a construírem a solução com base na sua versão, que à partida estará mais otimizada em termos de concorrência.
 
-While the former people, now in their monstrous forms, were attacking the non-infected in the buildings and trenches, the U.S. soldiers were able to push and eliminate the enemy. Although this seemed effective, it quickly got out of hand. The United States government sanctioned 85 bunkers, which took roughly 9 months to build. Each bunker was a different size. The first bunkers were the ones for important people. Politicians, senators, congressmen and women, and of course the President. The capacity for each bunker is roughly 15,000 people.
+## 1. Arquitetura do sistema
 
-Each came with its own nuclear reactor for power, a hydroponics for food, a schooling area for the children to be had in the bunker, a cafeteria for eating, a commons for relaxation and mingling between residents, and of course an armory for the bunker guards. Hyproxis was out of control. It infected multiple countries very quickly, as the virus was airborne and could spread quickly. The problem was, we expected it to dissipate. It never did, and eventually U.S. citizens were quick to contract the disease. This led the government leading everyone into bunkers and shutting the doors for the foreseeable future. This was a full extinction event.
+O sistema é formado pelo servidor (_mbroker_) e por vários publicadores (_publishers_), subscritores (_subscribers_) e gestores (_manager_).
 
-The year is now 2035, 13 years after the first Hyproxis infection. I’ve always lived a quiet life in the bunkers. My family entered Bunker 81 in the year 2023, one year after the first weaponized versions of Hyproxis were deployed. My mother and sister died on the journey to the bunker. We were all driving as fast as we were allowed in order to safely get a spot in the bunker. During the trip we came to a guarded checkpoint, a crossing. A bridge, which was suspended over the Hudson River. With as many people that were trying to get to the bunker, the weight was too much for the bridge to support. As traffic was jammed, my family and I decided to make a run for it, leaving the majority of our belongings behind. People were screaming, guards were shouting orders, and gunshots starting to ring out. I think the added weight from all the vehicles as well as the makeshift checkpoint that had been built here was too much for the bridge to support, and this was made evident by the groaning of the cables as the weight became too much to support. The bridge collapsed under my sister and mother, as they were behind me and my father. I turned around to the familiar scream of my mother and watched as they were lost to the river below. My father and I journeyed over the next day to the bunker, and were accepted inside.
+### Caixas de Mensagens
 
-In the current day, all male residents of the bunker, that are aged 18-20 are required to do 1 mandatory scouting run to the outside world. Today is my day.
+Um conceito fundamental do sistema são as caixas de mensagens.
+Cada caixa pode ter um publicador e múltiplos subscritores.
+O _publisher_ coloca mensagens na caixa, e os vários _subscribers_ lêem as mensagens da caixa.
+Cada caixa é suportada no servidor por um ficheiro no TFS.
+Por esta razão, o ciclo de vida de uma caixa é distinto do ciclo de vida do _publisher_ que lá publica mensagens.
+Aliás, é possível que uma caixa venha a ter vários _publishers_ ao longo da sua existência, embora apenas um de cada vez.
 
-“Hey, kid, how ya holding up?” Asked officer Purna.
+As operações de criação e remoção de caixa são geridas pelo _manager_.
+Adicionalmente, o _manager_ permite listar as caixas existentes na _mbroker_.
 
-“I’m doing alright, sir. I’m actually quite excited to see the real world and how much has changed in the 13 years I’ve been in the bunker.” I replied.
+### 1.1. Servidor
 
-“Well get ready Jackson, here comes our head officer of the expedition.” Purna said, with a sly smile playing on his face.
+O servidor incorpora o TecnicoFS e é um processo autónomo, inicializado da seguinte forma:
 
-The current head officer for our scouting run, would be officer Mack. Mack was well known as one of the most highly liked officers in the bunker, as he was always going out of his way to help others and improve everyone’s lives on a daily basis. His wife, Sarah, worked in hydroponics producing food for the bunker.
+```sh
+$ mbroker <pipename> <max_sessions>
+```
 
-“Well Purna, what do we have here? These are our 2 cadets for the day?” Mack stated with a somewhat superiority tone.
+O servidor cria um _named pipe_ cujo nome (_pipename_) é o indicado no argumento acima.
+É através deste _named pipe_, criado pelo servidor, que os processos cliente se poderão ligar para se registarem.
 
-“Yes, sir, these are the cadets whom we will be taking with us for our run today.” Purna said while pointing at me, and the other cadet whose name I was unaware of.
+Qualquer processo cliente pode ligar-se ao _named pipe_ do servidor e enviar-lhe uma mensagem a solicitar o início de uma sessão.
+Uma **sessão** consiste em ter um _named pipe_ do cliente, onde o cliente envia as mensagens (se for um publicador) ou onde o cliente recebe mensagens (se for um subscritor).
+Um dado cliente apenas assume um dos dois papéis, ou seja, ou é exclusivamente publicador e só envia informação para o servidor, ou é exclusivamente subscritor (ou gestor) e só recebe informação.
 
-“Let’s get moving, then.” Mack said without giving time for any further questions.
+O _named pipe_ da sessão deve ser criado previamente pelo cliente.
+Na mensagem de registo, o cliente envia o nome do _named pipe_ a usar durante a sessão.
 
-Everyone was geared with a survival pack, with enough rations for 3 days. Everyone had a flare, to signal for others in case we got split up, as well as a standard M9 Beretta handgun, with 3 clips of ammunition. Once we had all packed our gear into our pack, we started for the entrance of the vault.
+Uma sessão mantém-se aberta até que aconteça uma das seguintes situações:
 
-“We’re taking these cadets out for their mandatory scouting run today, Jeff, so open up.” Mack said to the sleepy guard operating the bunkers air pressured sealable titanium door. As the door opened, it emitted a high squeaking noise, as well as a hissing from the air pressure.
+1. Um cliente (publicador ou subscritor) feche o seu _named pipe_, sinalizando implicitamente o fim de sessão;
+2. A caixa é removida pelo gestor.
 
-As I took my first steps out into the new world, I was in awe by what scene was unfolding as the door opened before my eyes. The sky was a dark gray cast, contrary to the blue I remembered from being a small child. The earth around the bunkers entrance was a dark brown cast tone, and it was apparent the nuclear warheads that were detonated after civilians had entered the bunker to stem the flow of Hyproxis were still taking their toll on the land years later.
+O servidor aceita um número máximo de sessões em simultâneo, definido pelo valor do argumento `max_sessions`.
 
-“Still as beautiful as ever, eh Mack?” Purna said with a laugh.
+Nas subsecções seguintes descrevemos o protocolo cliente-servidor em maior detalhe, i.e., o conteúdo das mensagens de pedido e resposta trocadas entre clientes e servidor.
 
-“Yeah, just makes me wish we could change everything back to the way things were before.” Mack stated coldly while staring at the mountain in the distance.
+#### 1.1.1. Arquitectura do servidor
 
-We all grouped up and started walking together, heading due east. It was officer Mack leading, with me and the cadet whose name I still did not know in the middle, while officer Purna brought up the rear. We walked in silence for around an hour, before I spotted my first real buildings in the new world. It was a small tan shack, only around 10 feet long by 8 feet wide.
+O servidor deve ter uma _thread_ para gerir o _named pipe_ de registo e lançar `max_sessions` threads para processar sessões.
+Quando chega um novo pedido de registo, este deve ser enviado para uma _thread_ que se encontre disponível, que irá processá-lo durante o tempo necessário.
+Para gerir estes pedidos, evitando que as _threads_ fiquem em espera ativa, a _main thread_ e as _worker threads_ cooperam utilizando uma **fila produtor-consumidor**, segundo a interface disponibilizada no ficheiro `producer-consumer.h`.
+Desta forma, quando chega um novo pedido de registo, este é colocado na fila e assim que uma _thread_ fique disponível, irá consumir e tratar esse pedido.
 
-“Remember this place, boys. This is a shelter we built a few years ago to help scouts who couldn’t make it back to the bunker by nightfall, or who were injured and needed rest before heading back. And believe me, you do not want to be out here during the night.” Mack said with a highly matter-of-fact term.
+A arquitetura do servidor está sumarizada na seguinte figura:
 
-We continued on, only giving small glances at the shack before moving on. Mack told us to keep quiet and not speak unless it was urgent, so we did just that. Our group continued walking for roughly another hour, and I could see through the overcast sky that the sun was going to set soon. The time on my watch said it was 4:52 P.M, so it was going to be dark in roughly 1 and a half hours, since the sun has been said to set by scouts around this time of year and 6:30 P.M.
+![](img/architecture_proj2.png)
 
-“About how much further do you plan to take these kids, Mack?” Purna said from the back of the group.
+- O _mbroker_ usa o TFS para armazenar as mensagens das caixas;
+- A _main thread_ recebe pedidos através do _register pipe_ e coloca-os numa fila de produtor-consumidor;
+- As _worker threads_ executam os pedidos dos clientes, dedicando-se a atender um cliente de cada vez;
+- Cooperam com a _main thread_ através de uma fila produtor-consumidor, que evita espera ativa.
 
-“Well, I planned on taking them to the Burn.” Mack said while keeping his momentum and moving.
+### 1.2. _Publisher_
 
-“What’s the Burn?” I asked while taking a few seconds to catch my breath.
+Um publicador é um processo lançado da seguinte forma:
 
-“The Burn is a huge open crater left by some old buildings that had collapsed and exploded. The place constantly has fires, and usually is ridden with infected during the nighttime.” Purna said with a bitter tone.
+```sh
+pub <register_pipe> <pipe_name> <box_name>
+```
 
-We kept moving at a decent place until our group was standing over the ledge of an enormous crater. The crater was probably 300 feet in length, and well over 1000 feet wide. There was collapsed rubble and concrete everywhere from the buildings Purna had mentioned, but no sign of any infected creatures, or people.
+Assim que é lançado, o _publisher_, pede para iniciar uma sessão no servidor de _mbroker_, indicando a caixa de mensagens para a qual pretende escrever mensagens.
+Se a ligação for aceite (pode ser rejeitada caso já haja um _publisher_ ligado à caixa, por exemplo) fica a receber mensagens do `stdin` e depois publica-as.
+Uma **mensagem** corresponde a uma linha do `stdin`, sendo truncada a um dado valor máximo e delimitada por um `\0`, como uma _string_ de C.
+A mensagem não deve incluir um `\n` final.
 
-“Alright kids, this is as far as we go. It’s almost nighttime and we’re gonna be lucky if we make it back to the small scout shelter before sundown. Let’s get a move on.” Mack said while turning around.
+Se o _publisher_ receber um EOF (_End Of File_, por exemplo, com um Ctrl-D), deve encerrar a sessão fechando o _named pipe_.
 
-I saw out of the corner of my eye, a small shadow moving throughout a set of rubble. Before I could ask anyone what it could be, I heard an ear-piercing scream from the other cadet. I turned around instantly to see the cadet on the ground with some sort of thing hovering over his body. It looked like a dog, or a wolf, but its skin was heavily tearing at the seams from what looked to be bulging muscles beneath. It had a slight translucent red tone to its skin, and its eyes were a glowing shade of yellow.
+O nome do _named pipe_ da sessão é escolhido automaticamente pelo _publisher_, de forma a garantir que não existem conflitos com outros clientes concorrentes.
+O _named pipe_ deve ser removido do sistema de ficheiros após o fim da sessão.
 
-The creature instantly turned his attention from us to the cadet trapped on the ground under its weight, and tore into his esophagus, letting a small spray of red misty blood into the air. The cadet's screaming was cut short by the creature’s action, and we all turned around and immediately started running. I ran purely off of adrenaline and fear back onto the path leading back to the small scout shack, and did not stop until I got there. When I arrived, I noticed Purna was right behind me and was already readily opening the door and grabbing supplies to take inside out of his supply pack.
+### 1.3. _Subscriber_
 
-“Alright Jack, I lost Mack along the path but I’m sure he’s going to turn up soon enough.” Purna stated while still unloading supplies.
+Um subscritor é um processo lançado da seguinte forma:
 
-“What was that? What just murdered the other cadet?” I said, with a slight shake in my voice from the adrenaline and the fear.
+```sh
+sub <register_pipe> <pipe_name> <box_name>
+```
 
-“Well, Mack was stupid for taking you guys clear to the Burn, since he knows infected things roam that area sometimes. But that is what the scouts have nicknamed Wargs. Nasty things really, infected versions of common house dogs or wild wolves. Very big, very mean, very aggressive. Not so dangerous alone but in a pack, they can be a pain to deal with.” Purna said.
+Assim que é lançado, o _subscriber_:
 
-“You took us there knowing things like that were in the area?” I said with a slightly angry tone.
+1. Liga-se à _mbroker_, indicando qual a caixa de mensagens que pretende subscrever;
+2. Recolhe as mensagens já aí armazenadas e imprime-as uma a uma no `stdout`, delimitadas por `\n`;
+3. Fica à escuta de novas mensagens;
+4. Imprime novas mensagens quando são escritas para o _named pipe_ para o qual tem uma sessão aberta.
 
-“Listen, kid, calm down. We didn’t know they were going to be there. Usually, they don’t come out until nightfall, so for a lone one to attack us, even in a group, during daylight means food is getting scarce. They’re desperate.” Purna said.
+Para terminar o _subscriber_, este deve processar adequadamente o `SIGINT` (i.e., o Ctrl-C), fechando a sessão e imprimindo no `stdout` o número de mensagens recebidas durante a sessão.
 
-As soon as he finished his sentence, we heard a pounding on the door to the shack. I fumbled to grab my M9 Beretta out of my holster and take the safety off as I looked to Purna for instructions. He slowly motioned to check the peephole in the door, and as soon as I did, I instantly threw the door open.
+O nome do _named pipe_ da sessão é escolhido automaticamente pelo _subscriber_, de forma a garantir que não existem conflitos com outros clientes concorrentes.
+O _named pipe_ deve ser removido do sistema de ficheiros após o fim da sessão.
 
-Standing in front of us was a slightly bloody and sweaty Mack, who looked worse for wear.
+### 1.4. _Manager_
 
-“Jesus Mack, what the hell happened to you?” Purna said while staring at Mack’s arm, which he was pressuring with his other hand.
+Um gestor é um processo lançado de uma das seguintes formas:
 
-“Same Warg that got Peter got a hold of my arm down the path. I got a bullet through its head, but not before it took a chunk out of my arm.” Mack explained while sitting down to bandage his wound.
+```sh
+manager <register_pipe> <pipe_name> create <box_name>
+manager <register_pipe> <pipe_name> remove <box_name>
+manager <register_pipe> <pipe_name> list
+```
 
-“Alright Mack, it’s too dangerous to work towards the bunker tonight. Let’s wait until morning before we head back to the doors.” Purna said while closing the door and grabbing Mack first aid.
+Assim que é lançado, o _manager_:
 
-I did not realize until I sat down how tired I was, mainly due to the adrenaline keeping me active. As I slowly nodded off to the sound of Purna giving Mack first aid and them talking about the route to take to the bunker tomorrow morning, I fell into a deep sleep.
+1.  Envia o pedido à _mbroker_;
+2.  Recebe a resposta no _named pipe_ criado pelo próprio _manager_;
+3.  Imprime a resposta e termina.
 
-I woke to the sound of Purna packing supplies into our bags, and I could see light filtering through the shades of the single window placed in the shack. As I stood up and gathered my pack from Purna who was still packing items, I noticed Mack was a paler shade then yesterday.
+O nome do _named pipe_ da sessão é escolhido automaticamente pelo _manager_, de forma a garantir que não existem conflitos com outros clientes concorrentes.
+O _named pipe_ deve ser removido do sistema de ficheiros antes do _manager_ terminar.
 
-“Is Mack going to be, okay?” I asked Purna.
+### 1.5. Exemplos de execução
 
-“Well, we’ve never experienced a Warg bite before, since normally we don't scout at night, but I’m sure the doctors back in the bunker can treat him and get him back into fighting shape in no time.” Purna said with a smile on his face.
+Um primeiro **exemplo** considera o funcionamento **sequencial** dos clientes:
 
-I nodded slowly while continuing to pack my stuff, and noticed Mack was awake. He grabbed his canteen and guzzled down some water, with a groggy look on his face. He nodded towards me.
+1.  Um _manager_ cria a caixa `bla`;
+2.  Um _publisher_ liga-se à mesma caixa, escreve 3 mensagens e desliga-se;
+3.  Um _subscriber_ liga-se à mesma caixa e começa a receber mensagens;
+4.  Recebe as três, uma de cada vez, e depois fica à espera de mais mensagens.
 
-“You sleep alright, kid?” Mack said with a raspy tone to his voice.
+Num segundo **exemplo**, mais interessante, vai existir **concorrência** entre clientes:
 
-“Yes sir, even with everything that happened yesterday I was too tired to stay up any longer after my adrenaline faded.” I replied.
+1.  Um _publisher_ liga-se;
+2.  Entretanto, um _subscriber_ para a mesma caixa, liga-se também;
+3.  O _publisher_ coloca mensagens na caixa e estas vão sendo entregues imediatamente ao _subscriber_, ficando à mesma registadas no ficheiro;
+4.  Um outro _subscriber_ liga-se à mesma caixa, e começa a receber as mensagens todas desde o início da sua subscrição;
+5.  Agora, quando o _publisher_ escreve uma nova mensagem, ambos os _subscriber_ recebem a mensagem diretamente.
 
-“Well, good. Let’s get a move on to our bunker.” Mack said without giving time for further conversation.
+## 2. Protocolo
 
-We all finished packing our gear and headed outside into the daylight. There were small animal tracks outside in the slightly wet dirt, but nothing as big as the Kurn we came across yesterday. We traced our steps back along the path to the bunker, and arrived within a few hours at the huge titanium doors to the bunker. Mack was too sick it seemed to be of any help getting in, while Purna got the guards to allow us back in the bunker.
+Para moderar a interação entre o servidor e os clientes, é estabelecido um protocolo, que define como é que as mensagens são serializadas, ou seja, como é que ficam arrumadas num _buffer_ de _bytes_.
+Este tipo de protocolo é por vezes referido como um _wire protocol_, numa alusão aos dados que efetivamente circulam no meio de transmissão, que neste caso, serão os _named pipes_.
 
-For the first time in a long time, I was afraid.
+O conteúdo de cada mensagem deve seguir o seguinte formato, onde:
+
+- O símbolo `|` denota a concatenação de elementos numa mensagem;
+- Todas as mensagens de pedido são iniciadas por um código que identifica a operação solicitada (`OP_CODE`);
+- As _strings_ que transportam os nomes de _named pipes_ são de tamanho fixo, indicado na mensagem.
+  No caso de nomes de tamanho inferior, os caracteres adicionais devem ser preenchidos com `\0`.
+
+### 2.1. Registo
+
+O _named pipe_ do servidor, que só recebe registos de novos clientes, deve receber mensagens do seguinte tipo:
+
+Pedido de registo de _publisher_:
+
+```
+[ code = 1 (uint8_t) ] | [ client_named_pipe_path (char[256]) ] | [ box_name (char[32]) ]
+```
+
+Pedido de registo de _subscriber_:
+
+```
+[ code = 2 (uint8_t) ] | [ client_named_pipe_path (char[256]) ] | [ box_name (char[32]) ]
+```
+
+Pedido de criação de caixa:
+
+```
+[ code = 3 (uint8_t) ] | [ client_named_pipe_path (char[256]) ] | [ box_name (char[32]) ]
+```
+
+Resposta ao pedido de criação de caixa:
+
+```
+[ code = 4 (uint8_t) ] | [ return_code (int32_t) ] | [ error message (char[1024]) ]
+```
+
+O return code deve ser `0` se a caixa foi criada com sucesso, e `-1` em caso de erro.
+Em caso de erro a mensagem de erro é enviada (caso contrário, fica simplesmente inicializada com `\0`).
+
+Pedido de remoção de caixa:
+
+```
+[ code = 5 (uint8_t) ] | [ client_named_pipe_path (char[256]) ] | [ box_name (char[32]) ]
+```
+
+Resposta ao pedido de remoção de caixa:
+
+```
+[ code = 6 (uint8_t) ] | [ return_code (int32_t) ] | [ error message (char[1024]) ]
+```
+
+Pedido de listagem de caixas:
+
+```
+[ code = 7 (uint8_t) ] | [ client_named_pipe_path (char[256]) ]
+```
+
+A resposta à listagem de caixas vem em várias mensagens, do seguinte tipo:
+
+```
+[ code = 8 (uint8_t) ] | [ last (uint8_t) ] | [ box_name (char[32]) ] | [ box_size (uint64_t) ] | [ n_publishers (uint64_t) ] | [ n_subscribers (uint64_t) ]
+```
+
+O byte `last` é `1` se esta for a última caixa da listagem e a `0` em caso contrário.
+`box_size` é o tamanho (em _bytes_) da caixa, com `n_publisher` (`0` ou `1`) indicando se existe um _publisher_ ligado à caixa naquele momento, e `n_subscriber` o número de subscritores da caixa naquele momento.
+
+### 2.2 _Publisher_
+
+O _publisher_ envia mensagens para o servidor do tipo:
+
+```
+[ code = 9 (uint8_t) ] | [ message (char[1024]) ]
+```
+
+### 2.3 _Subscriber_
+
+O servidor envia mensagens para o _subscriber_ do tipo:
+
+```
+[ code = 10 (uint8_t) ] | [ message (char[1024]) ]
+```
+
+## 3. Requisitos de implementação
+
+### 3.1. Tratamento de clientes
+
+Quando o servidor inicia, lança um conjunto de `S` tarefas (_thread pool_), que ficam à espera de pedidos de registo para tratar, que irão receber através da fila produtor-consumidor.
+A _main thread_ gere o _named pipe_ de registo, e coloca os pedidos de registo na fila produtor-consumidor.
+Quando uma _thread_ termina uma sessão, fica à espera de nova sessão para tratar.
+
+### 3.2 Caixas de armazenamento
+
+As mensagens recebidas pelo servidor devem ser colocadas numa caixa.
+Na prática, uma caixa corresponde a um ficheiro no TecnicoFS.
+O ficheiro deve ser criado quando a caixa for criada pelo _manager_, e apagado quando a caixa for removida.
+Todas as mensagens que vão sendo recebidas são escritas no fim do ficheiro, separadas por `\0`.
+
+Resumindo, as mensagens são acumuladas nas caixas.
+Quando um subscritor se liga a uma caixa, o ficheiro correspondente é aberto e as mensagens começam a ser lidas desde o início (mesmo que o mesmo subscritor ou outro já as tenha recebido antes).
+Ulteriores mensagens geradas pelo _publisher_ de uma caixa deverão ser também entregues aos _subscribers_ da caixa.
+Esta funcionalidade deverá ser implementada usando **variáveis de condição** com o objetivo de evitar esperas ativas.
+
+### 3.3 Formatação de mensagens
+
+Para uniformizar o _output_ dos diversos comandos (para o `stdout`), é fornecido o formato com que estas devem ser impressas.
+
+### 3.4 Fila Produtor-Consumidor
+
+A fila produtor-consumidor é a estrutura de sincronização mais complexa do projeto.
+Por isso, esta componente vai ser avaliada em isolamento (i.e., existirão testes que usam apenas a interface descrita no `producer-consumer.h`) para garantir a sua correção.
+Como tal, a interface do `producer-consumer.h` não deve ser alterada.
+
+De resto, os grupos são livres de alterar o código base como lhes for conveniente.
+
+#### Mensagens do subscritor
+
+```c
+fprintf(stdout, "%s\n", message);
+```
+
+#### Listagem de caixas
+
+Cada linha da listagem de caixas deve ser impressa da seguinte forma:
+
+```c
+fprintf(stdout, "%s %zu %zu %zu\n", box_name, box_size, n_publishers, n_subscribers);
+```
+
+As caixas devem estar ordenadas por ordem alfabética, não sendo garantido que o servidor as envie por essa ordem (i.e., o cliente deve ordenar as caixas antes das imprimir).
+
+### 3.5 Espera Ativa
+
+No projeto, nunca devem ser usados mecanismos de espera ativa.
+
+## 4. Sugestão de implementação
+
+Sugere-se que implementem o projeto através dos seguintes passos:
+
+1. Implementar as interfaces de linha de comando (CLI) dos clientes;
+2. Implementar a serialização do protocolo de comunicação;
+3. Implementar uma versão básica do `mbroker`, onde só existe uma _thread_ que, em ciclo, a) recebe um pedido de registo; b) trata a sessão correspondente; e c) volta a ficar à espera do pedido de registo;
+4. Implementar a fila produtor-consumidor;
+5. Utilizar a fila produtor-consumidor para gerir e encaminhar os pedidos de registo para as _worker threads_.
+
+## 5. Submissão e avaliação
+
+A submissão é feita através do Fénix **até sexta-feira, dia 13/Janeiro/2023, às 20h00**.
+
+Os estudantes devem submeter um ficheiro no formato `zip` com o código fonte e o ficheiro `Makefile`.
+O arquivo submetido não deve incluir outros ficheiros (tais como binários).
+Além disso, o comando `make clean` deve limpar todos os ficheiros resultantes da compilação do projeto, bem como o comando `make fmt`, para formatar automaticamente o código.
+
+Recomendamos que os alunos se assegurem que o projeto compila/corre corretamente no [ambiente de referência](https://github.com/tecnico-so/lab_ambiente).
+Ao avaliar os projetos submetidos, em caso de dúvida sobre o funcionamento do código submetido, os docentes usarão o ambiente de referência para fazer a validação final.
+O uso de outros ambientes para o desenvolvimento/teste do projeto (e.g., macOS, Windows/WSL) é permitido, mas o corpo docente não dará apoio técnico a dúvidas relacionadas especificamente com esses ambientes.
+
+A avaliação será feita de acordo com o método de avaliação descrito no Fénix
+
+_Bom trabalho!_
