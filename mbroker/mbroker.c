@@ -1,3 +1,4 @@
+#include "../utils/utils.h"
 #include "consts.h"
 #include "logging.h"
 #include "operations.h"

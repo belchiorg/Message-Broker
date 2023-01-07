@@ -1,0 +1,7 @@
+{
+    "files.associations": {
+        "cstdlib": "c",
+        "mutex": "cpp",
+        "pthread.h": "c"
+    }
+}
