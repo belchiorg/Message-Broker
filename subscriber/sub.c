@@ -1,5 +1,7 @@
 #include <fcntl.h>
+#include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "../utils/utils.h"
 #include "logging.h"
@@ -19,6 +21,7 @@ int main(int argc, char **argv) {
   const char *boxName = argv[3];   // Pipe de mensagem (Ficheiro TFS)
 
   int fd = open(pipeName, O_WRONLY | O_APPEND);
+
   if (fd < 0) {
     perror("Error while opening fifo at publisher");
     exit(EXIT_FAILURE);
@@ -26,9 +29,9 @@ int main(int argc, char **argv) {
 
   char reg[MAX_MESSAGE_LEN] = "";
 
-  strncat(reg, "2|", 2);
+  strcat(reg, "2|");
   strncat(reg, registerPipeName, 256);
-  strncat(reg, "|", 1);
+  strcat(reg, "|");
   strncat(reg, boxName, 32);
 
   if (write(fd, reg, MAX_MESSAGE_LEN) < 0) {
@@ -40,7 +43,7 @@ int main(int argc, char **argv) {
   close(fd);
 
   int session;
-  if (session = open(registerPipeName, O_WRONLY) < 0) {
+  if ((session = open(registerPipeName, O_WRONLY)) < 0) {
     perror("Couldn't open session fifo");
     exit(EXIT_FAILURE);
   }
@@ -49,7 +52,7 @@ int main(int argc, char **argv) {
 
   while (read(session, message, MESSAGE_SIZE) > 0) {
     // TODO: implement the cycle that reads new messages from the server
-    fprintf(stdout, message);
+    fprintf(stdout, "%s", message);
   }
 
   unlink(registerPipeName);

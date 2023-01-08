@@ -1,6 +1,7 @@
 #include "utils.h"
 
 #include <pthread.h>
+#include <stdio.h>
 #include <stdlib.h>
 
 void mutex_lock(pthread_mutex_t *lock) {

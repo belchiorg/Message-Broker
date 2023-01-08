@@ -1,3 +1,5 @@
+#include <string.h>
+
 #include "logging.h"
 
 static void print_usage() {
@@ -19,6 +21,8 @@ int main(int argc, char **argv) {
 
   char *reg_pipe = argv[1];
   char *action = argv[2];
+
+  (void)reg_pipe;
 
   // TODO: verify if reg_pipe is valid :D
 

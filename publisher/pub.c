@@ -1,5 +1,7 @@
 #include <fcntl.h>
+#include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "../utils/utils.h"
 #include "logging.h"
@@ -26,10 +28,12 @@ int main(int argc, char **argv) {
 
   char reg[MAX_MESSAGE_LEN] = "";
 
-  strncat(reg, "1|", 2);
+  strcat(reg, "1|");
   strncat(reg, registerPipeName, 256);
-  strncat(reg, "|", 1);
+  strcat(reg, "|");
   strncat(reg, boxName, 32);
+
+  printf("%s", reg);
 
   if (write(fd, reg, MAX_MESSAGE_LEN) < 0) {
     perror("Error while writing in fifo");
@@ -39,7 +43,7 @@ int main(int argc, char **argv) {
   close(fd);
 
   int session;
-  if (session = open(registerPipeName, O_WRONLY) < 0) {
+  if ((session = open(registerPipeName, O_WRONLY)) < 0) {
     perror("Couldn't open session fifo");
     exit(EXIT_FAILURE);
   }
@@ -48,7 +52,7 @@ int main(int argc, char **argv) {
 
   while (1) {
     fscanf(stdin, "%s\n", buffer);
-    if (buffer == EOF) {
+    if (buffer[0] == EOF) {
       break;
     }
     buffer[MAX_BLOCK_LEN - 1] = 0;  // ? Limit the buffer

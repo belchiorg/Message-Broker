@@ -1,20 +1,15 @@
 #include "producer-consumer.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 
 #include "../utils/utils.h"
 
 int pcq_create(pc_queue_t *queue, size_t capacity) {
-  queue = (pc_queue_t *)malloc(sizeof(queue));
-  if (queue == NULL) {
-    perror("alloc_queue_error");
-    exit(EXIT_FAILURE);
-  }
-
   // ? Maybe usar algo que não char
-  queue->pcq_buffer = (char **)malloc(sizeof(char) * capacity);
+  queue->pcq_buffer = malloc(sizeof(char) * capacity);
   if (queue == NULL) {
-    perror("alloc_pcq_buffer_error");
+    fprintf(stderr, "alloc_pcq_buffer_error");
     exit(EXIT_FAILURE);
   }
 
@@ -49,12 +44,11 @@ int pcq_destroy(pc_queue_t *queue) {
 
   mutex_destroy(&queue->pcq_popper_condvar_lock);
 
-  free(queue);
-
   return 0;
 }
 
 int pcq_enqueue(pc_queue_t *queue, void *elem) {
+  (void)elem;
   // TODO: Esperar que a queue não esteja cheia
 
   mutex_lock(&queue->pcq_head_lock);
@@ -82,4 +76,6 @@ void *pcq_dequeue(pc_queue_t *queue) {
   }
 
   mutex_unlock(&queue->pcq_tail_lock);
+
+  return queue;
 }

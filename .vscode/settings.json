@@ -7,6 +7,7 @@
         "unistd.h": "c",
         "logging.h": "c",
         "utils.h": "c",
-        "operations.h": "c"
+        "operations.h": "c",
+        "stdio.h": "c"
     }
 }

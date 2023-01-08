@@ -1,15 +1,18 @@
 #include <fcntl.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 
 #include "../utils/utils.h"
 #include "logging.h"
 #include "operations.h"
 #include "producer-consumer.h"
 #include "state.h"
+#include "string.h"
 #include "unistd.h"
 
 int registerPub(const char* pipeName, const char* boxName) {
   int boxFd;
-  if (boxFd = tfs_open(boxName, TFS_O_APPEND) < 0) {
+  if ((boxFd = tfs_open(boxName, TFS_O_APPEND | TFS_O_CREAT)) < 0) {
     perror("Error while opening box");
     exit(EXIT_FAILURE);
   }
@@ -19,21 +22,26 @@ int registerPub(const char* pipeName, const char* boxName) {
     exit(EXIT_FAILURE);
   }
 
+  printf("%s %s", pipeName, boxName);
+
+  tfs_unlink(pipeName);
+
   if (mkfifo(pipeName, 0640) < 0) {
     perror("Error while creating fifo");
     exit(EXIT_FAILURE);
   }
 
   int sessionFd;
-  if (sessionFd = open(pipeName, O_WRONLY) < 0) {
+  if ((sessionFd = open(pipeName, O_WRONLY)) < 0) {
     perror("Error while opening fifo");
     exit(EXIT_FAILURE);
   }
 
   char message[MESSAGE_SIZE];
-  int n;
+  ssize_t n;
 
-  while (n = read(sessionFd, message, MESSAGE_SIZE) > 0) {
+  while ((n = read(sessionFd, message, MESSAGE_SIZE)) > 0) {
+    fprintf(stdout, "%s", message);
     //* Reads what is in the fifo
 
     if (tfs_write(boxFd, message, MESSAGE_SIZE) < 0) {
@@ -61,15 +69,29 @@ int registerSub(const char* pipeName, const char* boxName) {
   }
 
   int sessionFd;
-  if (sessionFd = open(pipeName, O_WRONLY) < 0) {
+  if ((sessionFd = open(pipeName, O_WRONLY)) < 0) {
     perror("Error while opening fifo");
     exit(EXIT_FAILURE);
   }
 
   char message[MESSAGE_SIZE];
-  int n;
+  ssize_t n;
 
-  while (n = tfs_read(boxFd, message, MESSAGE_SIZE) > 0) {
+  if (tfs_read(boxFd, message, MESSAGE_SIZE) > 0) {
+    //* Sends byte Code
+    if (write(sessionFd, "10|", 3) < 0) {
+      //* Writes it to fifo
+      perror("Error while writing in fifo");
+      exit(EXIT_FAILURE);
+    }
+    if (write(sessionFd, message, MESSAGE_SIZE) < 0) {
+      //* Writes it to fifo
+      perror("Error while writing in fifo");
+      exit(EXIT_FAILURE);
+    }
+  }
+
+  while ((n = tfs_read(boxFd, message, MESSAGE_SIZE)) > 0) {
     //* Reads what is in the file
 
     if (write(sessionFd, message, MESSAGE_SIZE) < 0) {
@@ -78,7 +100,7 @@ int registerSub(const char* pipeName, const char* boxName) {
       exit(EXIT_FAILURE);
     }
 
-    sleep(1);  //! espera ativa :D
+    // sleep(1);  //! espera ativa :D
   }
 
   close(boxFd);
@@ -88,11 +110,15 @@ int registerSub(const char* pipeName, const char* boxName) {
 }
 
 int createBox(const char* pipeName, const char* boxName) {
+  (void)pipeName;
+  (void)boxName;
   // TODO: Implement Me
   return -1;
 }
 
 int destroyBox(const char* pipeName, const char* boxName) {
+  (void)pipeName;
+  (void)boxName;
   // TODO: Implement Me
   return -1;
 }
@@ -112,21 +138,25 @@ int main(int argc, char** argv) {
   // 2 - max sessions
 
   if (argc != 3) {
-    fprintf(stderr, "usage: mbroker <pipeName>\n");
+    fprintf(stderr, "usage: mbroker <pipeName> <maxSessions>\n");
     exit(EXIT_FAILURE);
   }
 
   const char* pipeName = argv[1];
-  const int maxSessions = atoi(argv[2]);
+  const size_t maxSessions = (size_t)atoi(argv[2]);
   char buf[MAX_BLOCK_LEN];
 
-  pc_queue_t* queue;
+  pc_queue_t queue;
 
-  pcq_create(queue, maxSessions);
+  pcq_create(&queue, maxSessions);
 
-  tfs_unlink(pipeName);
+  if (unlink(pipeName) < 0) {
+    perror("yo");
+    exit(EXIT_FAILURE);
+  }
 
   if (mkfifo(pipeName, 0640) < 0) {
+    perror("heheh");
     exit(EXIT_FAILURE);
   }
 
@@ -135,29 +165,30 @@ int main(int argc, char** argv) {
     exit(EXIT_FAILURE);
   }
 
-  int n;
+  ssize_t n;
   while (1) {
     // This loop reads the pipe, always expecting new messages
 
-    if (n = read(fd, buf, MAX_FILE_NAME) != 0) {
+    if ((n = read(fd, buf, MAX_FILE_NAME)) != 0) {
       //* recebeu uma mensagem
       char* ptr = strtok(buf, "|");
-      u_int8_t code = atoi(ptr);
+      short code = (short)atoi(ptr);
       char* clientNamedPipe = strtok(NULL, "|");
+      char* boxName;
 
       switch (code) {
-        case 1:
-          char* boxName = strtok(NULL, "|");
+        case '1':
+          boxName = strtok(NULL, "|");
           registerPub(clientNamedPipe, boxName);
           break;
 
         case 2:
-          char* boxName = strtok(NULL, "|");
+          boxName = strtok(NULL, "|");
           registerSub(clientNamedPipe, boxName);
           break;
 
         case 3:
-          char* boxName = strtok(NULL, "|");
+          boxName = strtok(NULL, "|");
           createBox(clientNamedPipe, boxName);
           break;
 
@@ -166,7 +197,7 @@ int main(int argc, char** argv) {
           break;
 
         case 5:
-          char* boxName = strtok(NULL, "|");
+          boxName = strtok(NULL, "|");
           destroyBox(clientNamedPipe, boxName);
           break;
 
@@ -192,7 +223,7 @@ int main(int argc, char** argv) {
     sleep(1);  //! Ta em espera ativa aqui uwu
   }
 
-  pcq_destroy(queue);
+  pcq_destroy(&queue);
 
   close(fd);
 
