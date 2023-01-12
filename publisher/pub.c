@@ -3,6 +3,7 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "../registry/registry.h"
 #include "../utils/logging.h"
 #include "../utils/utils.h"
 
@@ -16,11 +17,11 @@ int main(int argc, char **argv) {
     fprintf(stderr, "usage: pub <register_pipe_name> <pipe_name> <box_name>\n");
   }
 
-  const char *registerPipeName = argv[1];  // Nome do pipe do Cliente
-  const char *pipeName = argv[2];  // Canal que recebe as mensagens (servidor)
-  const char *boxName = argv[3];   // Pipe de mensagem (Ficheiro TFS)
+  const char *register_pipe_name = argv[1];  // Nome do pipe do Cliente
+  const char *pipe_name = argv[2];  // Canal que recebe as mensagens (servidor)
+  const char *boxName = argv[3];    // Pipe de mensagem (Ficheiro TFS)
 
-  int fd = open(pipeName, O_WRONLY | O_APPEND);
+  int fd = open(pipe_name, O_WRONLY | O_APPEND);
   if (fd < 0) {
     perror("Error while opening fifo at publisher");
     exit(EXIT_FAILURE);
@@ -28,22 +29,25 @@ int main(int argc, char **argv) {
 
   char reg[MAX_MESSAGE_LEN];
 
-  memset(reg, 0, MAX_MESSAGE_LEN);
+  Protocol *registry = (Protocol *)malloc(256 + 33 + sizeof(__uint8_t));
 
-  strcat(reg, "1|");
-  strncat(reg, registerPipeName, 256);
-  strcat(reg, "|/");
-  strncat(reg, boxName, 32);
+  registry->code = 1;
+  strncpy(registry->register_pipe_name, register_pipe_name, 256);
+  strncat(registry->box_name, "/", 1);
+  strncat(registry->box_name, boxName, 31);
 
-  if (write(fd, reg, MAX_MESSAGE_LEN) < 0) {
+  if (write(fd, registry, MAX_MESSAGE_LEN) < 0) {
+    free(registry);
     perror("Error while writing in fifo");
     exit(EXIT_FAILURE);
   }
 
-  close(fd);
-  sleep(2);
+  free(registry);
 
-  int session = open(registerPipeName, O_WRONLY);
+  close(fd);
+  sleep(2);  //! Yau <- tirar isto
+
+  int session = open(register_pipe_name, O_WRONLY);
   if (session < 0) {
     perror("Couldn't open session fifo");
     exit(EXIT_FAILURE);
@@ -66,7 +70,7 @@ int main(int argc, char **argv) {
 
   close(session);
 
-  unlink(registerPipeName);
+  unlink(register_pipe_name);
 
   return 0;
 }
