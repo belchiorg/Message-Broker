@@ -1,18 +1,21 @@
 #include <fcntl.h>
+#include <semaphore.h>
+#include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <unistd.h>
 
+#include "../fs/operations.h"
+#include "../producer-consumer/producer-consumer.h"
+#include "../utils/logging.h"
 #include "../utils/utils.h"
-#include "logging.h"
-#include "operations.h"
-#include "producer-consumer.h"
-#include "state.h"
-#include "string.h"
-#include "unistd.h"
 
-int registerPub(const char* pipeName, const char* boxName) {
-  int boxFd;
-  if ((boxFd = tfs_open(boxName, TFS_O_APPEND | TFS_O_CREAT)) < 0) {
+sem_t sessionsSem;
+pc_queue_t queue;
+
+int registerPub(const char* pipeName, char* boxName) {
+  int boxFd = tfs_open(boxName, TFS_O_APPEND | TFS_O_CREAT);
+  if ((boxFd) < 0) {
     perror("Error while opening box");
     exit(EXIT_FAILURE);
   }
@@ -22,17 +25,16 @@ int registerPub(const char* pipeName, const char* boxName) {
     exit(EXIT_FAILURE);
   }
 
-  printf("%s %s", pipeName, boxName);
+  unlink(pipeName);
 
-  tfs_unlink(pipeName);
-
-  if (mkfifo(pipeName, 0640) < 0) {
+  if (mkfifo(pipeName, 0777) < 0) {
     perror("Error while creating fifo");
     exit(EXIT_FAILURE);
   }
 
+  fprintf(stdout, "%s\n", pipeName);
   int sessionFd;
-  if ((sessionFd = open(pipeName, O_WRONLY)) < 0) {
+  if ((sessionFd = open(pipeName, O_RDONLY)) < 0) {
     perror("Error while opening fifo");
     exit(EXIT_FAILURE);
   }
@@ -44,7 +46,7 @@ int registerPub(const char* pipeName, const char* boxName) {
     fprintf(stdout, "%s", message);
     //* Reads what is in the fifo
 
-    if (tfs_write(boxFd, message, MESSAGE_SIZE) < 0) {
+    if (tfs_write(boxFd, message, MESSAGE_SIZE) <= 0) {
       //* Writes it to the file System
       perror("Error while writing in fifo");
       exit(EXIT_FAILURE);
@@ -52,6 +54,13 @@ int registerPub(const char* pipeName, const char* boxName) {
 
     sleep(1);  //! espera ativa :D
   }
+
+  memset(message, 0, MESSAGE_SIZE);
+
+  tfs_read(boxFd, message, MESSAGE_SIZE);
+
+  printf("%s", message);
+  puts("hey");
 
   return 0;
 }
@@ -146,30 +155,37 @@ int main(int argc, char** argv) {
   const size_t maxSessions = (size_t)atoi(argv[2]);
   char buf[MAX_BLOCK_LEN];
 
-  pc_queue_t queue;
-
   pcq_create(&queue, maxSessions);
 
+  if (sem_init(&sessionsSem, 0, maxSessions) == -1) {
+    perror("sem_init");
+    exit(EXIT_FAILURE);
+  }
+
+  // sem_wait(&sessionsSem); //! Usar isto quando não houverem mais sessões
+
+  tfs_init(NULL);
+
   if (unlink(pipeName) < 0) {
-    perror("yo");
+    tfs_destroy();
     exit(EXIT_FAILURE);
   }
 
   if (mkfifo(pipeName, 0640) < 0) {
-    perror("heheh");
+    tfs_destroy();
     exit(EXIT_FAILURE);
   }
 
   int fd = open(pipeName, TFS_O_TRUNC);
   if (fd < 0) {
+    tfs_destroy();
     exit(EXIT_FAILURE);
   }
 
-  ssize_t n;
   while (1) {
     // This loop reads the pipe, always expecting new messages
 
-    if ((n = read(fd, buf, MAX_FILE_NAME)) != 0) {
+    if ((read(fd, buf, MAX_FILE_NAME)) != 0) {
       //* recebeu uma mensagem
       char* ptr = strtok(buf, "|");
       short code = (short)atoi(ptr);
@@ -177,7 +193,7 @@ int main(int argc, char** argv) {
       char* boxName;
 
       switch (code) {
-        case '1':
+        case 1:
           boxName = strtok(NULL, "|");
           registerPub(clientNamedPipe, boxName);
           break;
@@ -224,6 +240,8 @@ int main(int argc, char** argv) {
   }
 
   pcq_destroy(&queue);
+
+  tfs_destroy();
 
   close(fd);
 

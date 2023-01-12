@@ -3,10 +3,10 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "../utils/logging.h"
 #include "../utils/utils.h"
-#include "logging.h"
 
-#define MAX_MESSAGE_LEN 291
+#define MAX_MESSAGE_LEN 292
 
 int main(int argc, char **argv) {
   (void)argc;
@@ -26,14 +26,14 @@ int main(int argc, char **argv) {
     exit(EXIT_FAILURE);
   }
 
-  char reg[MAX_MESSAGE_LEN] = "";
+  char reg[MAX_MESSAGE_LEN];
+
+  memset(reg, 0, MAX_MESSAGE_LEN);
 
   strcat(reg, "1|");
   strncat(reg, registerPipeName, 256);
-  strcat(reg, "|");
+  strcat(reg, "|/");
   strncat(reg, boxName, 32);
-
-  printf("%s", reg);
 
   if (write(fd, reg, MAX_MESSAGE_LEN) < 0) {
     perror("Error while writing in fifo");
@@ -41,9 +41,10 @@ int main(int argc, char **argv) {
   }
 
   close(fd);
+  sleep(2);
 
-  int session;
-  if ((session = open(registerPipeName, O_WRONLY)) < 0) {
+  int session = open(registerPipeName, O_WRONLY);
+  if (session < 0) {
     perror("Couldn't open session fifo");
     exit(EXIT_FAILURE);
   }
@@ -51,13 +52,14 @@ int main(int argc, char **argv) {
   char buffer[MAX_BLOCK_LEN];
 
   while (1) {
-    fscanf(stdin, "%s\n", buffer);
-    if (buffer[0] == EOF) {
+    fscanf(stdin, "%s", buffer);
+    if (buffer[2] == EOF) {
       break;
     }
-    buffer[MAX_BLOCK_LEN - 1] = 0;  // ? Limit the buffer
+    // buffer[MAX_BLOCK_LEN - 1] = 0;  // ? Limit the buffer
 
     write(session, buffer, MAX_BLOCK_LEN);
+    break;
 
     memset(buffer, 0, MAX_BLOCK_LEN);
   }
