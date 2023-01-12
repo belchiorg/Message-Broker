@@ -1,4 +1,4 @@
-#include "registry.h"
+#include "protocol.h"
 
 #include <fcntl.h>
 #include <semaphore.h>
@@ -13,13 +13,13 @@
 #include "../utils/utils.h"
 
 int registerPub(const char* pipeName, char* boxName) {
-  int boxFd = tfs_open(boxName, TFS_O_APPEND | TFS_O_CREAT);
+  int boxFd = tfs_open(boxName, TFS_O_APPEND);
   if ((boxFd) < 0) {
     perror("Error while opening box");
     exit(EXIT_FAILURE);
   }
 
-  // TODO: Verify if the box exists and if there are any other publishers
+  // TODO: Verify if there are any publishers
   if (0) {
     exit(EXIT_FAILURE);
   }
@@ -37,13 +37,13 @@ int registerPub(const char* pipeName, char* boxName) {
     exit(EXIT_FAILURE);
   }
 
+  char message[MESSAGE_SIZE];
   ssize_t n;
 
   while ((n = read(sessionFd, message, MESSAGE_SIZE)) > 0) {
-    fprintf(stdout, "%s", message);
     //* Reads what is in the fifo
 
-    if (tfs_write(boxFd, message, MESSAGE_SIZE) <= 0) {
+    if (tfs_write(boxFd, message, (size_t)n) <= 0) {
       //* Writes it to the file System
       perror("Error while writing in fifo");
       exit(EXIT_FAILURE);
@@ -52,12 +52,7 @@ int registerPub(const char* pipeName, char* boxName) {
     sleep(1);  //! espera ativa :D
   }
 
-  memset(message, 0, MESSAGE_SIZE);
-
-  tfs_read(boxFd, message, MESSAGE_SIZE);
-
-  printf("%s", message);
-  puts("hey");
+  tfs_close(boxFd);
 
   return 0;
 }
@@ -118,15 +113,61 @@ int registerSub(const char* pipeName, const char* boxName) {
 int createBox(const char* pipeName, const char* boxName) {
   (void)pipeName;
   (void)boxName;
-  // TODO: Implement Me
-  return -1;
+
+  Box_Protocol* response = (Box_Protocol*)malloc(sizeof(Box_Protocol));
+
+  response->code = 4;
+
+  int boxfd;
+
+  if ((boxfd = tfs_open(boxName, TFS_O_CREAT)) < 0) {
+    response->response = -1;
+    strcpy(response->error_message, "Error while creating box");
+  } else {
+    response->response = 0;
+    memset(response->error_message, 0, strlen(response->error_message));
+  }
+
+  int fd = open(pipeName, O_WRONLY);
+
+  if (write(fd, response, sizeof(Box_Protocol)) < 0) {
+    free(response);
+    perror("Error while writing in manager fifo");
+    exit(EXIT_FAILURE);
+  }
+
+  close(fd);
+  free(response);
+  tfs_close(boxfd);
+  return 0;
 }
 
 int destroyBox(const char* pipeName, const char* boxName) {
   (void)pipeName;
   (void)boxName;
-  // TODO: Implement Me
-  return -1;
+  Box_Protocol* response = (Box_Protocol*)malloc(sizeof(Box_Protocol));
+
+  response->code = 6;
+
+  if (tfs_unlink(boxName) == -1) {
+    response->response = -1;
+    strcpy(response->error_message, "Error while deleting boxName");
+  } else {
+    response->response = 0;
+    memset(response->error_message, 0, strlen(response->error_message));
+  }
+
+  int file = open(pipeName, O_WRONLY);
+
+  if (write(file, response, sizeof(Box_Protocol)) < -1) {
+    free(response);
+    perror("Error while writting in manager fifo");
+    exit(EXIT_FAILURE);
+  }
+
+  free(response);
+
+  return 0;
 }
 
 int listBoxes() {
@@ -134,5 +175,3 @@ int listBoxes() {
   fprintf(stdout, "Isto é uma caixa que levou print uwu");
   return -1;
 }
-
-//? Codigo daqui para cima talvez possa ser colocado noutro ficheiro :D

@@ -7,9 +7,9 @@
 
 #include "../fs/operations.h"
 #include "../producer-consumer/producer-consumer.h"
-#include "../registry/registry.h"
 #include "../utils/logging.h"
 #include "../utils/utils.h"
+#include "protocol.h"
 
 sem_t sessionsSem;
 pc_queue_t queue;
@@ -27,7 +27,6 @@ int main(int argc, char** argv) {
 
   const char* pipeName = argv[1];
   const size_t maxSessions = (size_t)atoi(argv[2]);
-  char buf[MAX_BLOCK_LEN];
 
   pcq_create(&queue, (size_t)maxSessions);
 
@@ -40,10 +39,7 @@ int main(int argc, char** argv) {
 
   tfs_init(NULL);
 
-  if (unlink(pipeName) < 0) {
-    tfs_destroy();
-    exit(EXIT_FAILURE);
-  }
+  unlink(pipeName);
 
   if (mkfifo(pipeName, 0640) < 0) {
     tfs_destroy();
@@ -56,12 +52,15 @@ int main(int argc, char** argv) {
     exit(EXIT_FAILURE);
   }
 
+  Registry_Protocol* registry =
+      (Registry_Protocol*)malloc(sizeof(__uint8_t) + 256 + 32);
   while (1) {
     // This loop reads the pipe, always expecting new messages
 
-    if ((read(fd, buf, MAX_FILE_NAME)) != 0) {
+    if ((read(fd, registry, sizeof(Registry_Protocol))) != 0) {
       //* recebeu uma mensagem
-      Protocol* registry = (Protocol*)malloc(sizeof(__uint8_t) + 256 + 32);
+
+      puts("you");
 
       switch (registry->code) {
         case 1:
@@ -99,10 +98,10 @@ int main(int argc, char** argv) {
         default:
           break;
       }
-      free(registry);
     }
     sleep(1);  //! Ta em espera ativa aqui uwu
   }
+  free(registry);
 
   pcq_destroy(&queue);
 

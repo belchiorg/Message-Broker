@@ -9,6 +9,8 @@
         "utils.h": "c",
         "operations.h": "c",
         "stdio.h": "c",
-        "system_error": "c"
+        "system_error": "c",
+        "registry.h": "c",
+        "protocol.h": "c"
     }
 }

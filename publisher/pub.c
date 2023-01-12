@@ -3,7 +3,7 @@
 #include <string.h>
 #include <unistd.h>
 
-#include "../registry/registry.h"
+#include "../mbroker/protocol.h"
 #include "../utils/logging.h"
 #include "../utils/utils.h"
 
@@ -27,16 +27,15 @@ int main(int argc, char **argv) {
     exit(EXIT_FAILURE);
   }
 
-  char reg[MAX_MESSAGE_LEN];
-
-  Protocol *registry = (Protocol *)malloc(256 + 33 + sizeof(__uint8_t));
+  Registry_Protocol *registry =
+      (Registry_Protocol *)malloc(256 + 33 + sizeof(__uint8_t));
 
   registry->code = 1;
-  strncpy(registry->register_pipe_name, register_pipe_name, 256);
+  strcpy(registry->register_pipe_name, register_pipe_name);
   strncat(registry->box_name, "/", 1);
   strncat(registry->box_name, boxName, 31);
 
-  if (write(fd, registry, MAX_MESSAGE_LEN) < 0) {
+  if (write(fd, registry, sizeof(Registry_Protocol)) < 0) {
     free(registry);
     perror("Error while writing in fifo");
     exit(EXIT_FAILURE);
@@ -54,18 +53,25 @@ int main(int argc, char **argv) {
   }
 
   char buffer[MAX_BLOCK_LEN];
+  memset(buffer, 0, MAX_BLOCK_LEN);
 
   while (1) {
-    fscanf(stdin, "%s", buffer);
+    ssize_t n = read(0, buffer, MAX_BLOCK_LEN);
+    if (n == 0) {
+      // Faz nada
+    }
+
     if (buffer[2] == EOF) {
       break;
     }
     // buffer[MAX_BLOCK_LEN - 1] = 0;  // ? Limit the buffer
 
-    write(session, buffer, MAX_BLOCK_LEN);
-    break;
+    if (write(session, buffer, (size_t)n) < 0) {
+      perror("Error while writing to session fifo");
+      exit(EXIT_FAILURE);
+    }
 
-    memset(buffer, 0, MAX_BLOCK_LEN);
+    break;
   }
 
   close(session);

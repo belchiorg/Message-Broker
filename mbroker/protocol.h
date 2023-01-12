@@ -13,11 +13,17 @@
 #include "../utils/logging.h"
 #include "../utils/utils.h"
 
-typedef struct Protocol {
+typedef struct Registry_Protocol {
   __uint8_t code;
   char register_pipe_name[256];
   char box_name[32];
-} Protocol;
+} Registry_Protocol;
+
+typedef struct Box_Protocol {
+  __uint8_t code;
+  __int32_t response;
+  char error_message[1024];
+} Box_Protocol;
 
 int registerPub(const char* pipeName, char* boxName);
 

@@ -3,7 +3,7 @@
 #include <string.h>
 #include <unistd.h>
 
-#include "../registry/registry.h"
+#include "../mbroker/protocol.h"
 #include "../utils/utils.h"
 #include "logging.h"
 
