@@ -9,10 +9,12 @@
 #include "../producer-consumer/producer-consumer.h"
 #include "../utils/logging.h"
 #include "../utils/utils.h"
+#include "message_box.h"
 #include "protocol.h"
 
 sem_t sessionsSem;
 pc_queue_t queue;
+Box_Node* box_list = NULL;
 
 int main(int argc, char** argv) {
   // expected argv:
@@ -39,6 +41,8 @@ int main(int argc, char** argv) {
 
   tfs_init(NULL);
 
+  box_list = NULL;
+
   unlink(pipeName);
 
   if (mkfifo(pipeName, 0640) < 0) {
@@ -58,19 +62,26 @@ int main(int argc, char** argv) {
     // This loop reads the pipe, always expecting new messages
 
     if ((read(fd, registry, sizeof(Registry_Protocol))) != 0) {
+      fprintf(stdout, "ERROR %d\n", registry->code);
       //* recebeu uma mensagem
 
       switch (registry->code) {
         case 1:
-          registerPub(registry->register_pipe_name, registry->box_name);
+          register_pub(registry->register_pipe_name, registry->box_name,
+                       box_list);
           break;
 
         case 2:
-          registerSub(registry->register_pipe_name, registry->box_name);
+          register_sub(registry->register_pipe_name, registry->box_name,
+                       box_list);
           break;
 
         case 3:
-          createBox(registry->register_pipe_name, registry->box_name);
+          create_box(registry->register_pipe_name, registry->box_name,
+                     box_list);
+          if (box_list == NULL) {
+            puts("Nula");
+          }
           break;
 
         case 4:
@@ -78,7 +89,8 @@ int main(int argc, char** argv) {
           break;
 
         case 5:
-          destroyBox(registry->register_pipe_name, registry->box_name);
+          destroy_box(registry->register_pipe_name, registry->box_name,
+                      box_list);
           break;
 
         case 6:
@@ -86,7 +98,8 @@ int main(int argc, char** argv) {
           break;
 
         case 7:
-          listBoxes();
+          puts("hey");
+          send_list_boxes(registry->register_pipe_name, box_list);
           break;
 
         case 8:

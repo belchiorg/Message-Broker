@@ -12,6 +12,7 @@
 #include "../producer-consumer/producer-consumer.h"
 #include "../utils/logging.h"
 #include "../utils/utils.h"
+#include "message_box.h"
 
 typedef struct Registry_Protocol {
   __uint8_t code;
@@ -25,23 +26,14 @@ typedef struct Box_Protocol {
   char error_message[1024];
 } Box_Protocol;
 
-typedef struct Message_Box {
-  __uint8_t code;
-  __uint8_t last;
-  char box_name[32];
-  __uint64_t box_size;
-  __uint64_t n_publishers;
-  __uint64_t n_subscribers;
-} Message_Box;
+int register_pub(const char* pipeName, char* boxName, Box_Node* box_list);
 
-int registerPub(const char* pipeName, char* boxName);
+int register_sub(const char* pipeName, const char* boxName, Box_Node* box_list);
 
-int registerSub(const char* pipeName, const char* boxName);
+int create_box(const char* pipeName, const char* boxName, Box_Node* box_list);
 
-int createBox(const char* pipeName, const char* boxName);
+int destroy_box(const char* pipeName, const char* boxName, Box_Node* box_list);
 
-int destroyBox(const char* pipeName, const char* boxName);
-
-int listBoxes();
+int send_list_boxes(const char* pipe_name, Box_Node* box_list);
 
 #endif

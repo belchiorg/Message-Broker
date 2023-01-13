@@ -1,5 +1,6 @@
 #include <string.h>
 
+#include "../mbroker/message_box.h"
 #include "../mbroker/protocol.h"
 #include "../utils/logging.h"
 
@@ -11,10 +12,65 @@ static void print_usage() {
           "   manager <register_pipe_name> <pipe_name> list\n");
 }
 
-int main(int argc, char **argv) {
-  (void)argc;
-  (void)argv;
+void list_boxes(const char *pipe_name) {
+  fprintf(stdout, "%s\n", pipe_name);
+  int fd = open(pipe_name, O_RDONLY);
+  if (fd < 0) {
+    perror("Error while opening fifo at manager");
+    exit(EXIT_FAILURE);
+  }
 
+  Message_Box *box = (Message_Box *)malloc(sizeof(Message_Box));
+
+  int is_empty = 1;
+
+  while (read(fd, box, sizeof(Message_Box)) > 0) {
+    is_empty = 0;
+    fprintf(stdout, "%s %zu %zu %zu\n", box->box_name, box->box_size,
+            box->n_publishers, box->n_subscribers);
+    memset(box, 0, sizeof(Message_Box));
+  }
+
+  free(box);
+
+  if (is_empty) {
+    fprintf(stdout, "NO BOXES FOUND\n");
+  }
+
+  unlink(pipe_name);
+
+  close(fd);
+}
+
+void create_delete_box(const char *pipe_name) {
+  int fd = open(pipe_name, O_RDONLY | O_APPEND);
+  if (fd < 0) {
+    perror("Error while opening fifo at manager");
+    exit(EXIT_FAILURE);
+  }
+
+  Box_Protocol *response = (Box_Protocol *)malloc(sizeof(Box_Protocol));
+
+  if (read(fd, response, sizeof(Box_Protocol)) < 0) {
+    free(response);
+    perror("Error while reading manager fifo");
+    exit(EXIT_FAILURE);
+  }
+
+  if (response->response == 0) {
+    fprintf(stdout, "OK\n");
+  } else {
+    fprintf(stdout, "ERROR %s\n", response->error_message);
+  }
+
+  free(response);
+
+  unlink(pipe_name);
+
+  close(fd);
+}
+
+int main(int argc, char **argv) {
   if (argc != 4 && argc != 5) {
     print_usage();
     exit(EXIT_FAILURE);
@@ -29,6 +85,8 @@ int main(int argc, char **argv) {
     perror("Error while opening fifo at manager");
     exit(EXIT_FAILURE);
   }
+
+  int to_list_question_mark = 1;
 
   // TODO: verify if reg_pipe is valid :D
 
@@ -45,6 +103,7 @@ int main(int argc, char **argv) {
       exit(EXIT_FAILURE);
     }
   } else {
+    to_list_question_mark = 0;
     char *box_name = argv[4];
     if (strcmp(action, "create") == 0) {
       registry->code = 3;
@@ -63,7 +122,8 @@ int main(int argc, char **argv) {
     }
   }
 
-  unlink(reg_pipe);
+  unlink(reg_pipe);  //! -> mover poh final
+
   if (mkfifo(reg_pipe, 0777)) {
     free(registry);
     perror("Error while making manager fifo");
@@ -80,23 +140,11 @@ int main(int argc, char **argv) {
 
   close(fd);
 
-  fd = open(reg_pipe, O_RDONLY | O_APPEND);
-  if (fd < 0) {
-    perror("Error while opening fifo at manager");
-    exit(EXIT_FAILURE);
+  if (to_list_question_mark) {
+    list_boxes(reg_pipe);
+  } else {
+    create_delete_box(reg_pipe);
   }
-
-  Box_Protocol *response = (Box_Protocol *)malloc(sizeof(Box_Protocol));
-
-  if (read(fd, response, sizeof(Box_Protocol)) < 0) {
-    free(response);
-    perror("Error while reading manager fifo");
-    exit(EXIT_FAILURE);
-  }
-
-  free(response);
-
-  close(fd);
 
   return 0;
 }

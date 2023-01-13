@@ -11,28 +11,31 @@
 #include "../producer-consumer/producer-consumer.h"
 #include "../utils/logging.h"
 #include "../utils/utils.h"
+#include "message_box.h"
 
-int registerPub(const char* pipeName, char* boxName) {
-  int boxFd = tfs_open(boxName, TFS_O_APPEND);
+int register_pub(const char* pipe_name, char* box_name, Box_Node* box_list) {
+  int boxFd = tfs_open(box_name, TFS_O_APPEND);
   if ((boxFd) < 0) {
     perror("Error while opening box");
     exit(EXIT_FAILURE);
   }
 
   // TODO: Verify if there are any publishers
-  if (0) {
+  Message_Box* box = find_message_box(box_name, box_list);
+  if (box->n_publishers > 0) {
     exit(EXIT_FAILURE);
   }
+  box->n_publishers++;
 
-  unlink(pipeName);
+  //* unlink(pipe_name); -> passou para o publisher
 
-  if (mkfifo(pipeName, 0777) < 0) {
+  if (mkfifo(pipe_name, 0777) < 0) {
     perror("Error while creating fifo");
     exit(EXIT_FAILURE);
   }
 
   int sessionFd;
-  if ((sessionFd = open(pipeName, O_RDONLY)) < 0) {
+  if ((sessionFd = open(pipe_name, O_RDONLY)) < 0) {
     perror("Error while opening fifo");
     exit(EXIT_FAILURE);
   }
@@ -57,18 +60,22 @@ int registerPub(const char* pipeName, char* boxName) {
   return 0;
 }
 
-int registerSub(const char* pipeName, const char* boxName) {
-  int boxFd = tfs_open(boxName, 0);
+int register_sub(const char* pipe_name, const char* box_name,
+                 Box_Node* box_list) {
+  int boxFd = tfs_open(box_name, 0);
   if (boxFd < 0) {
     perror("Error while creating/opening box");
     exit(EXIT_FAILURE);
   }
 
   int sessionFd;
-  if ((sessionFd = open(pipeName, O_WRONLY)) < 0) {
+  if ((sessionFd = open(pipe_name, O_WRONLY)) < 0) {
     perror("Error while opening fifo");
     exit(EXIT_FAILURE);
   }
+
+  Message_Box* box = find_message_box(box_name, box_list);
+  box->n_subscribers++;
 
   char message[MESSAGE_SIZE];
   ssize_t n;
@@ -108,17 +115,18 @@ int registerSub(const char* pipeName, const char* boxName) {
   return 0;
 }
 
-int createBox(const char* pipeName, const char* boxName) {
+int create_box(const char* pipe_name, const char* box_name,
+               Box_Node* box_list) {
   Box_Protocol* response = (Box_Protocol*)malloc(sizeof(Box_Protocol));
 
   response->code = 4;
 
-  if (tfs_open(boxName, 0) < 0) {
+  if (find_message_box(box_name, box_list) != NULL) {
     response->response = -1;
     strcpy(response->error_message, "Message box already exists");
   } else {
     int boxfd;
-    if ((boxfd = tfs_open(boxName, TFS_O_CREAT)) < 0) {
+    if ((boxfd = tfs_open(box_name, TFS_O_CREAT)) < 0) {
       response->response = -1;
       strcpy(response->error_message, "Error while creating box");
     } else {
@@ -128,7 +136,7 @@ int createBox(const char* pipeName, const char* boxName) {
     tfs_close(boxfd);
   }
 
-  int fd = open(pipeName, O_WRONLY);
+  int fd = open(pipe_name, O_WRONLY);
 
   if (write(fd, response, sizeof(Box_Protocol)) < 0) {
     free(response);
@@ -136,33 +144,38 @@ int createBox(const char* pipeName, const char* boxName) {
     exit(EXIT_FAILURE);
   }
 
+  add_box(box_name, box_list);
+
+  puts("ey");
+
   close(fd);
   free(response);
   return 0;
 }
 
-int destroyBox(const char* pipeName, const char* boxName) {
-  (void)pipeName;
-  (void)boxName;
+int destroy_box(const char* pipe_name, const char* box_name,
+                Box_Node* box_list) {
   Box_Protocol* response = (Box_Protocol*)malloc(sizeof(Box_Protocol));
 
   response->code = 6;
 
-  if (tfs_unlink(boxName) == -1) {
+  if (tfs_unlink(box_name) == -1) {
     response->response = -1;
-    strcpy(response->error_message, "Error while deleting boxName");
+    strcpy(response->error_message, "Error while deleting box_name");
   } else {
     response->response = 0;
     memset(response->error_message, 0, strlen(response->error_message));
   }
 
-  int file = open(pipeName, O_WRONLY);
+  int file = open(pipe_name, O_WRONLY);
 
   if (write(file, response, sizeof(Box_Protocol)) < -1) {
     free(response);
     perror("Error while writting in manager fifo");
     exit(EXIT_FAILURE);
   }
+
+  remove_box(box_name, box_list);
 
   close(file);
 
@@ -171,8 +184,28 @@ int destroyBox(const char* pipeName, const char* boxName) {
   return 0;
 }
 
-int listBoxes() {
-  // TODO: Implement Me
-  fprintf(stdout, "Isto é uma caixa que levou print uwu");
-  return -1;
+int send_list_boxes(const char* pipe_name, Box_Node* box_list) {
+  Box_Node* ptr = box_list;
+
+  fprintf(stdout, "ERROR %s\n", box_list->box->box_name);
+
+  int pipe_fd = open(pipe_name, O_WRONLY);
+  if (pipe_fd < 0) {
+    perror("Error while opening Manager Fifo in list_boxes");
+    exit(EXIT_FAILURE);
+  }
+
+  while (ptr != NULL) {
+    Message_Box* box = ptr->box;
+    fprintf(stdout, "ERROR %s\n", box->box_name);
+    if (write(pipe_fd, box, sizeof(Message_Box)) < 0) {
+      perror("Error while writing in manager Fifo");
+      exit(EXIT_FAILURE);
+    }
+    ptr = ptr->next;
+  }
+
+  close(pipe_fd);
+
+  return 0;
 }

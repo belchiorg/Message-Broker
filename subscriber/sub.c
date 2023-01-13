@@ -60,7 +60,8 @@ int main(int argc, char **argv) {
   while (read(session, message, MESSAGE_SIZE) > 0) {
     //! Mudar esta merda para struct
     // TODO: implement the cycle that reads new messages from the server
-    write(1, message, MESSAGE_SIZE);
+    if (write(1, message, MESSAGE_SIZE)) {
+    }
     memset(message, 0, MESSAGE_SIZE);
   }
 

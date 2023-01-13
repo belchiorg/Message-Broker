@@ -12,6 +12,7 @@
         "system_error": "c",
         "registry.h": "c",
         "protocol.h": "c",
-        "string.h": "c"
+        "string.h": "c",
+        "message_box.h": "c"
     }
 }
