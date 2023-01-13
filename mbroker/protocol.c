@@ -98,6 +98,8 @@ int registerSub(const char* pipeName, const char* boxName) {
       perror("Error while writing in fifo");
       exit(EXIT_FAILURE);
     }
+
+    memset(message, 0, MESSAGE_SIZE);
   }
 
   close(boxFd);

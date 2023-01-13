@@ -64,6 +64,8 @@ int main(int argc, char **argv) {
     memset(message, 0, MESSAGE_SIZE);
   }
 
+  close(session);
+
   unlink(register_pipe_name);
 
   return 0;
