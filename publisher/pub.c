@@ -32,7 +32,7 @@ int main(int argc, char **argv) {
 
   registry->code = 1;
   strcpy(registry->register_pipe_name, register_pipe_name);
-  strncat(registry->box_name, "/", 1);
+  strcat(registry->box_name, "/");
   strncat(registry->box_name, boxName, 31);
 
   if (write(fd, registry, sizeof(Registry_Protocol)) < 0) {
@@ -52,26 +52,27 @@ int main(int argc, char **argv) {
     exit(EXIT_FAILURE);
   }
 
-  char buffer[MAX_BLOCK_LEN];
-  memset(buffer, 0, MAX_BLOCK_LEN);
+  char buffer[MESSAGE_SIZE];
+  memset(buffer, 0, MESSAGE_SIZE);
 
   while (1) {
-    ssize_t n = read(0, buffer, MAX_BLOCK_LEN);
-    if (n == 0) {
-      // Faz nada
+    //* Versão anti-bug das threads:
+    ssize_t n = read(0, buffer, 1);
+    if (n < 0) {
+      perror("Error while reading from stdin");
+      exit(EXIT_FAILURE);
     }
 
-    if (buffer[2] == EOF) {
+    if (buffer[0] == '0') {
       break;
     }
-    // buffer[MAX_BLOCK_LEN - 1] = 0;  // ? Limit the buffer
 
-    if (write(session, buffer, (size_t)n) < 0) {
+    if (write(session, buffer, strlen(buffer)) < 0) {
       perror("Error while writing to session fifo");
       exit(EXIT_FAILURE);
     }
 
-    break;
+    memset(buffer, 0, MESSAGE_SIZE);
   }
 
   close(session);

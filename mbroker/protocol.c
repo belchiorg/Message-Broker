@@ -111,23 +111,22 @@ int createBox(const char* pipeName, const char* boxName) {
 
   response->code = 4;
 
-  int boxfd;
-
-  if ((boxfd = tfs_open(boxName, TFS_O_CREAT)) < 0) {
+  if (tfs_open(boxName, 0) < 0) {
     response->response = -1;
-    strcpy(response->error_message, "Error while creating box");
+    strcpy(response->error_message, "Message box already exists");
   } else {
-    response->response = 0;
-    memset(response->error_message, 0, strlen(response->error_message));
+    int boxfd;
+    if ((boxfd = tfs_open(boxName, TFS_O_CREAT)) < 0) {
+      response->response = -1;
+      strcpy(response->error_message, "Error while creating box");
+    } else {
+      response->response = 0;
+      memset(response->error_message, 0, strlen(response->error_message));
+    }
+    tfs_close(boxfd);
   }
 
-  fprintf(stdout, "box: %s\n", boxName);
-  fprintf(stdout, "pipe: %s\n", pipeName);
-
   int fd = open(pipeName, O_WRONLY);
-
-  fprintf(stdout, "file: %d\n", fd);
-  puts("-----------------------");
 
   if (write(fd, response, sizeof(Box_Protocol)) < 0) {
     free(response);
@@ -137,7 +136,6 @@ int createBox(const char* pipeName, const char* boxName) {
 
   close(fd);
   free(response);
-  tfs_close(boxfd);
   return 0;
 }
 
@@ -156,10 +154,6 @@ int destroyBox(const char* pipeName, const char* boxName) {
     memset(response->error_message, 0, strlen(response->error_message));
   }
 
-  unlink(pipeName);
-
-  mkfifo(pipeName, 0777);
-
   int file = open(pipeName, O_WRONLY);
 
   if (write(file, response, sizeof(Box_Protocol)) < -1) {
@@ -167,6 +161,8 @@ int destroyBox(const char* pipeName, const char* boxName) {
     perror("Error while writting in manager fifo");
     exit(EXIT_FAILURE);
   }
+
+  close(file);
 
   free(response);
 

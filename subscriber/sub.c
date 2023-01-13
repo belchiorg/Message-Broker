@@ -38,7 +38,7 @@ int main(int argc, char **argv) {
 
   registry->code = 2;
   strcpy(registry->register_pipe_name, register_pipe_name);
-  strncat(registry->box_name, "/", 1);
+  strcat(registry->box_name, "/");
   strncat(registry->box_name, box_name, 31);
 
   if (write(fd, registry, sizeof(Registry_Protocol)) < 0) {
@@ -57,10 +57,11 @@ int main(int argc, char **argv) {
 
   char message[MESSAGE_SIZE];
 
-  while (read(session, message, MESSAGE_SIZE) >
-         0) {  //! Mudar esta merda para struct
+  while (read(session, message, MESSAGE_SIZE) > 0) {
+    //! Mudar esta merda para struct
     // TODO: implement the cycle that reads new messages from the server
-    fprintf(stdout, "%s", message);
+    write(1, message, MESSAGE_SIZE);
+    memset(message, 0, MESSAGE_SIZE);
   }
 
   unlink(register_pipe_name);
