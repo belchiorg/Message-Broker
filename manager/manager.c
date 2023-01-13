@@ -45,7 +45,7 @@ int main(int argc, char **argv) {
       exit(EXIT_FAILURE);
     }
   } else {
-    char *box_name = argv[3];
+    char *box_name = argv[4];
     if (strcmp(action, "create") == 0) {
       registry->code = 3;
       strcpy(registry->register_pipe_name, reg_pipe);
@@ -63,6 +63,13 @@ int main(int argc, char **argv) {
     }
   }
 
+  unlink(reg_pipe);
+  if (mkfifo(reg_pipe, 0777)) {
+    free(registry);
+    perror("Error while making manager fifo");
+    exit(EXIT_FAILURE);
+  }
+
   if (write(fd, registry, sizeof(Registry_Protocol)) < 0) {
     free(registry);
     perror("Error while writing in fifo");
@@ -73,7 +80,7 @@ int main(int argc, char **argv) {
 
   close(fd);
 
-  fd = open(pipe_name, O_RDONLY | O_APPEND);
+  fd = open(reg_pipe, O_RDONLY | O_APPEND);
   if (fd < 0) {
     perror("Error while opening fifo at manager");
     exit(EXIT_FAILURE);

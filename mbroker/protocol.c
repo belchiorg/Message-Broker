@@ -49,7 +49,7 @@ int registerPub(const char* pipeName, char* boxName) {
       exit(EXIT_FAILURE);
     }
 
-    sleep(1);  //! espera ativa :D
+    memset(message, 0, MESSAGE_SIZE);
   }
 
   tfs_close(boxFd);
@@ -58,14 +58,9 @@ int registerPub(const char* pipeName, char* boxName) {
 }
 
 int registerSub(const char* pipeName, const char* boxName) {
-  int boxFd = tfs_open(boxName, TFS_O_TRUNC);
+  int boxFd = tfs_open(boxName, 0);
   if (boxFd < 0) {
     perror("Error while creating/opening box");
-    exit(EXIT_FAILURE);
-  }
-
-  if (mkfifo(pipeName, 0640) < 0) {
-    perror("Error while creating fifo");
     exit(EXIT_FAILURE);
   }
 
@@ -80,11 +75,14 @@ int registerSub(const char* pipeName, const char* boxName) {
 
   if (tfs_read(boxFd, message, MESSAGE_SIZE) > 0) {
     //* Sends byte Code
-    if (write(sessionFd, "10|", 3) < 0) {
-      //* Writes it to fifo
-      perror("Error while writing in fifo");
-      exit(EXIT_FAILURE);
-    }
+    //! Passar esta merda para struct
+
+    // if (write(sessionFd, "10|", 3) < 0) {
+    //   //* Writes it to fifo
+    //   perror("Error while writing in fifo");
+    //   exit(EXIT_FAILURE);
+    // }
+
     if (write(sessionFd, message, MESSAGE_SIZE) < 0) {
       //* Writes it to fifo
       perror("Error while writing in fifo");
@@ -100,8 +98,6 @@ int registerSub(const char* pipeName, const char* boxName) {
       perror("Error while writing in fifo");
       exit(EXIT_FAILURE);
     }
-
-    // sleep(1);  //! espera ativa :D
   }
 
   close(boxFd);
@@ -111,9 +107,6 @@ int registerSub(const char* pipeName, const char* boxName) {
 }
 
 int createBox(const char* pipeName, const char* boxName) {
-  (void)pipeName;
-  (void)boxName;
-
   Box_Protocol* response = (Box_Protocol*)malloc(sizeof(Box_Protocol));
 
   response->code = 4;
@@ -128,7 +121,13 @@ int createBox(const char* pipeName, const char* boxName) {
     memset(response->error_message, 0, strlen(response->error_message));
   }
 
+  fprintf(stdout, "box: %s\n", boxName);
+  fprintf(stdout, "pipe: %s\n", pipeName);
+
   int fd = open(pipeName, O_WRONLY);
+
+  fprintf(stdout, "file: %d\n", fd);
+  puts("-----------------------");
 
   if (write(fd, response, sizeof(Box_Protocol)) < 0) {
     free(response);
@@ -156,6 +155,10 @@ int destroyBox(const char* pipeName, const char* boxName) {
     response->response = 0;
     memset(response->error_message, 0, strlen(response->error_message));
   }
+
+  unlink(pipeName);
+
+  mkfifo(pipeName, 0777);
 
   int file = open(pipeName, O_WRONLY);
 

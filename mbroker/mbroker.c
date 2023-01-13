@@ -52,15 +52,13 @@ int main(int argc, char** argv) {
     exit(EXIT_FAILURE);
   }
 
-  Registry_Protocol* registry =
-      (Registry_Protocol*)malloc(sizeof(__uint8_t) + 256 + 32);
   while (1) {
+    Registry_Protocol* registry =
+        (Registry_Protocol*)malloc(sizeof(Registry_Protocol));
     // This loop reads the pipe, always expecting new messages
 
     if ((read(fd, registry, sizeof(Registry_Protocol))) != 0) {
       //* recebeu uma mensagem
-
-      puts("you");
 
       switch (registry->code) {
         case 1:
@@ -100,8 +98,8 @@ int main(int argc, char** argv) {
       }
     }
     sleep(1);  //! Ta em espera ativa aqui uwu
+    free(registry);
   }
-  free(registry);
 
   pcq_destroy(&queue);
 

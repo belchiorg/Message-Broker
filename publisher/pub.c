@@ -28,7 +28,7 @@ int main(int argc, char **argv) {
   }
 
   Registry_Protocol *registry =
-      (Registry_Protocol *)malloc(256 + 33 + sizeof(__uint8_t));
+      (Registry_Protocol *)malloc(sizeof(Registry_Protocol));
 
   registry->code = 1;
   strcpy(registry->register_pipe_name, register_pipe_name);

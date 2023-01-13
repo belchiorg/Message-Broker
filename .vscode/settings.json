@@ -11,6 +11,7 @@
         "stdio.h": "c",
         "system_error": "c",
         "registry.h": "c",
-        "protocol.h": "c"
+        "protocol.h": "c",
+        "string.h": "c"
     }
 }
