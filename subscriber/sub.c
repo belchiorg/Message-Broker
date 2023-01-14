@@ -58,30 +58,12 @@ int main(int argc, char **argv) {
   Message_Protocol *message =
       (Message_Protocol *)malloc(sizeof(Message_Protocol));
 
-  int offset = 0;
+  ssize_t n_messages;
 
   while (read(session, message, sizeof(Message_Protocol)) > 0) {
-    while (offset < 1024 && !(message->message[offset] == '\0' &&
-                              message->message[offset + 4] == '\0')) {
-      if (message->message[offset] == '\0') {
-        if (write(1, "\n", 1)) {
-        }
-      } else {
-        if (write(1, message->message + offset, 1)) {
-        }
-      }
-      offset++;
-    }
+    fprintf(stdout, "%s\n", message->message);
 
-    if (write(1, "\n", 1)) {
-    }
-
-    if (offset >= 1024) {
-      break;
-    }
-
-    offset += 2;
-
+    n_messages++;
     memset(message, 0, sizeof(Message_Protocol));
   }
 

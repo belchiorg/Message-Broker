@@ -13,6 +13,8 @@
         "registry.h": "c",
         "protocol.h": "c",
         "string.h": "c",
-        "message_box.h": "c"
+        "message_box.h": "c",
+        "future": "c",
+        "sstream": "c"
     }
 }

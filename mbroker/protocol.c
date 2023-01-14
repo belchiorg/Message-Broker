@@ -19,7 +19,6 @@ int register_pub(const char* pipe_name, char* box_name) {
     return -1;
   }
 
-  // TODO: Verify if there are any publishers
   Message_Box* box = find_message_box(box_name);
   if (box->n_publishers > 0) {
     exit(EXIT_FAILURE);
@@ -30,6 +29,7 @@ int register_pub(const char* pipe_name, char* box_name) {
 
   int sessionFd;
   if ((sessionFd = open(pipe_name, O_RDONLY)) < 0) {
+    box->n_publishers--;
     perror("Error while opening fifo");
     exit(EXIT_FAILURE);
   }
@@ -42,10 +42,11 @@ int register_pub(const char* pipe_name, char* box_name) {
   while ((n = read(sessionFd, message, sizeof(Message_Protocol))) > 0) {
     //* Reads what is in the fifo
 
-    if (write(1, message->message, MESSAGE_SIZE)) {
+    if (write(1, message->message, strlen(message->message))) {
     }
 
-    if (tfs_write(boxFd, message->message, strlen(message->message) + 1) <= 0) {
+    if (tfs_write(boxFd, message->message, strlen(message->message) + 1) < 0) {
+      box->n_publishers--;
       //* Writes it to the file System
       free(message);
       perror("Error while writing in fifo");
@@ -54,8 +55,10 @@ int register_pub(const char* pipe_name, char* box_name) {
 
     box->box_size += (size_t)strlen(message->message);
 
-    memset(message, 0, sizeof(Message_Protocol));
+    memset(message->message, 0, sizeof(message->message));
   }
+
+  box->n_publishers--;
 
   close(sessionFd);
 
@@ -88,19 +91,21 @@ int register_sub(const char* pipe_name, const char* box_name) {
 
   message->code = 10;
 
-  while ((n = tfs_read(boxFd, message->message, sizeof(message->message))) >
-             0 ||
-         box->n_publishers > 0) {
+  char buff[1024];
+
+  while ((n = tfs_read(boxFd, buff, 1024)) > 0 || box->n_publishers > 0) {
     //* Reads what is in the file
 
-    if (write(sessionFd, message, MESSAGE_SIZE) < 0) {
+    if (write(1, buff, sizeof(buff))) {
+    }
+    strcpy(message->message, buff);
+    if (write(sessionFd, message, sizeof(Message_Protocol)) < 0) {
       //* Writes it to fifo
       free(message);
       perror("Error while writing in fifo");
       exit(EXIT_FAILURE);
     }
-
-    memset(message, 0, sizeof(Message_Protocol));
+    memset(message->message, 0, 1024);
   }
 
   free(message);

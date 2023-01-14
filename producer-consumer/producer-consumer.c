@@ -7,7 +7,6 @@
 #include "../utils/utils.h"
 
 int pcq_create(pc_queue_t *queue, size_t capacity) {
-  // ? Maybe usar algo que não char
   queue->pcq_buffer = malloc(sizeof(Registry_Protocol) * capacity);
   if (queue == NULL) {
     fprintf(stderr, "alloc_pcq_buffer_error");
@@ -92,8 +91,13 @@ void *pcq_dequeue(pc_queue_t *queue) {
                       &queue->pcq_popper_condvar_lock);
   }
 
+  mutex_unlock(&queue->pcq_popper_condvar_lock);
+
   mutex_lock(&queue->pcq_head_lock);
   mutex_lock(&queue->pcq_current_size_lock);
+
+  Registry_Protocol *registry = queue->pcq_buffer[queue->pcq_head];
+
   queue->pcq_buffer[queue->pcq_head] = NULL;
   queue->pcq_head++;
 
@@ -107,5 +111,5 @@ void *pcq_dequeue(pc_queue_t *queue) {
 
   pthread_cond_signal(&queue->pcq_pusher_condvar);
 
-  return queue;
+  return registry;
 }

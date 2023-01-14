@@ -65,8 +65,6 @@ int main(int argc, char **argv) {
   message = (Message_Protocol *)malloc(sizeof(Message_Protocol));
   message->code = 9;
   while (1) {
-    //* Versão anti-bug das threads:
-
     t = 0;
 
     if (fgets(message->message, 1024, stdin) == NULL) break;
@@ -90,8 +88,6 @@ int main(int argc, char **argv) {
   }
 
   free(message);
-
-  printf("%lu", n);
 
   close(session);
 

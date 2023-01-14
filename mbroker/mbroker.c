@@ -17,10 +17,12 @@ pc_queue_t queue;
 
 void* workerThreadsFunc() {
   while (1) {
-    puts("he2");
+    printf("%lu\n", queue.pcq_current_size);
+    puts("hey");
     Registry_Protocol* registry = pcq_dequeue(&queue);
     switch (registry->code) {
       case 1:
+        puts("hey");
         register_pub(registry->register_pipe_name, registry->box_name);
         break;
 
@@ -29,9 +31,7 @@ void* workerThreadsFunc() {
         break;
 
       case 3:
-        puts("he1");
         create_box(registry->register_pipe_name, registry->box_name);
-        puts("he1");
         break;
 
       case 5:
@@ -90,26 +90,12 @@ int main(int argc, char** argv) {
     exit(EXIT_FAILURE);
   }
 
-  void* protocol;
-  __uint8_t code;
+  Registry_Protocol* registry;
   while (1) {
-    if (read(fd, &code, 1) <= 0) {
-      puts("error");
-    }
-    if (code == 3 || code == 5 || code == 7) {
-      protocol = (Box_Protocol*)malloc(sizeof(Box_Protocol));
-      if ((read(fd, protocol, sizeof(Box_Protocol))) != 0) {
-        // Received a registry
-        write(1, protocol, sizeof(Box_Protocol));
-        pcq_enqueue(&queue, protocol);
-      }
-    } else if (code == 1 || code == 2) {
-      protocol = (Registry_Protocol*)malloc(sizeof(Registry_Protocol));
-      if ((read(fd, protocol, sizeof(Registry_Protocol))) != 0) {
-        // Received a registry
-        write(1, protocol, sizeof(Registry_Protocol));
-        pcq_enqueue(&queue, protocol);
-      }
+    registry = (Registry_Protocol*)malloc(sizeof(Registry_Protocol));
+    if ((read(fd, registry, sizeof(Registry_Protocol))) != 0) {
+      // Received a registry
+      pcq_enqueue(&queue, registry);
     }
   }
 
