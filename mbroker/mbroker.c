@@ -18,11 +18,9 @@ pc_queue_t queue;
 void* workerThreadsFunc() {
   while (1) {
     printf("%lu\n", queue.pcq_current_size);
-    puts("hey");
     Registry_Protocol* registry = pcq_dequeue(&queue);
     switch (registry->code) {
       case 1:
-        puts("hey");
         register_pub(registry->register_pipe_name, registry->box_name);
         break;
 

@@ -1,4 +1,5 @@
 #include <fcntl.h>
+#include <signal.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -9,7 +10,28 @@
 
 #define MAX_MESSAGE_LEN 291
 
+int messages = 0;
+int fd;
+int session;
+
+Message_Protocol *message;
+
+void sig_handler(int sig) {
+  if (sig == SIGINT) {
+    if (signal(SIGINT, sig_handler) == SIG_ERR) {
+      exit(EXIT_FAILURE);
+    }
+    fprintf(stdout, "%d\n", messages);
+    return;
+  }
+
+  exit(EXIT_SUCCESS);
+}
+
 int main(int argc, char **argv) {
+  if (signal(SIGINT, sig_handler) == SIG_ERR) {
+  }
+
   if (argc != 4) {
     fprintf(stderr, "usage: sub <register_pipe_name> <pipe_name> <box_name>\n");
   }
@@ -18,7 +40,7 @@ int main(int argc, char **argv) {
   const char *pipe_name = argv[2];  // Canal que recebe as mensagens (servidor)
   const char *box_name = argv[3];   // Pipe de mensagem (Ficheiro TFS)
 
-  int fd = open(pipe_name, O_WRONLY | O_APPEND);
+  fd = open(pipe_name, O_WRONLY | O_APPEND);
 
   if (fd < 0) {
     perror("Error while opening fifo at publisher");
@@ -47,31 +69,41 @@ int main(int argc, char **argv) {
     exit(EXIT_FAILURE);
   }
 
+  free(registry);
+
   close(fd);
 
-  int session;
   if ((session = open(register_pipe_name, O_RDONLY)) < 0) {
     perror("Couldn't open session fifo");
     exit(EXIT_FAILURE);
   }
 
-  Message_Protocol *message =
-      (Message_Protocol *)malloc(sizeof(Message_Protocol));
+  message = (Message_Protocol *)malloc(sizeof(Message_Protocol));
 
-  ssize_t n_messages;
+  ssize_t n;
 
-  while (read(session, message, sizeof(Message_Protocol)) > 0) {
+  if ((n = read(session, message, sizeof(Message_Protocol))) > 0) {
+    for (int i = 0; (i < 1023 && !(message->message[i] == '\0' &&
+                                   message->message[i + 1] == '\0'));
+         i++) {
+      if (message->message[i] == '\0') {
+        message->message[i] = '\n';
+        messages++;
+      }
+    }
+
+    puts("hey");
     fprintf(stdout, "%s\n", message->message);
 
-    n_messages++;
-    memset(message, 0, sizeof(Message_Protocol));
+    memset(message->message, 0, sizeof(Message_Protocol));
   }
 
-  free(message);
-
-  close(session);
-
-  unlink(register_pipe_name);
+  while ((n = read(session, message, sizeof(Message_Protocol))) > 0) {
+    puts("hey");
+    fprintf(stdout, "%s\n", message->message);
+    messages++;
+    memset(message->message, 0, sizeof(Message_Protocol));
+  }
 
   return 0;
 }

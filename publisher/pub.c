@@ -74,7 +74,7 @@ int main(int argc, char **argv) {
     }
 
     t = (ssize_t)strlen(message->message);
-    message->message[t - 1] = 0;
+    message->message[t - 1] = '\0';  // removes '\n'
 
     n += t;
 

@@ -75,6 +75,7 @@ int pcq_enqueue(pc_queue_t *queue, void *elem) {
   }
 
   queue->pcq_current_size++;
+  fprintf(stdout, "%lu", queue->pcq_current_size);
   mutex_unlock(&queue->pcq_current_size_lock);
   mutex_unlock(&queue->pcq_tail_lock);
 

@@ -38,22 +38,21 @@ int register_pub(const char* pipe_name, char* box_name) {
       (Message_Protocol*)malloc(sizeof(Message_Protocol));
 
   ssize_t n;
+  size_t len;
 
   while ((n = read(sessionFd, message, sizeof(Message_Protocol))) > 0) {
     //* Reads what is in the fifo
 
-    if (write(1, message->message, strlen(message->message))) {
+    // if (write(1, message->message, sizeof(message->message))) {
+    // }
+
+    while (n -= tfs_write(boxFd, message->message,
+                          strlen(message->message) + 1) > 0) {
     }
 
-    if (tfs_write(boxFd, message->message, strlen(message->message) + 1) < 0) {
-      box->n_publishers--;
-      //* Writes it to the file System
-      free(message);
-      perror("Error while writing in fifo");
-      exit(EXIT_FAILURE);
-    }
+    len = strlen(message->message);
 
-    box->box_size += (size_t)strlen(message->message);
+    box->box_size += len;
 
     memset(message->message, 0, sizeof(message->message));
   }
@@ -84,33 +83,37 @@ int register_sub(const char* pipe_name, const char* box_name) {
   Message_Box* box = find_message_box(box_name);
   box->n_subscribers++;
 
-  ssize_t n;
-
   Message_Protocol* message =
       (Message_Protocol*)malloc(sizeof(Message_Protocol));
 
   message->code = 10;
 
-  char buff[1024];
-
-  while ((n = tfs_read(boxFd, buff, 1024)) > 0 || box->n_publishers > 0) {
-    //* Reads what is in the file
-
-    if (write(1, buff, sizeof(buff))) {
-    }
-    strcpy(message->message, buff);
+  memset(message->message, 0, 1024);
+  if (tfs_read(boxFd, message->message, 1024) > 0) {
     if (write(sessionFd, message, sizeof(Message_Protocol)) < 0) {
       //* Writes it to fifo
       free(message);
       perror("Error while writing in fifo");
       exit(EXIT_FAILURE);
     }
+
+    memset(message->message, 0, 1024);
+  }
+
+  while (tfs_read(boxFd, message->message, 1024) > 0) {
+    if (write(sessionFd, message, sizeof(Message_Protocol)) < 0) {
+      //* Writes it to fifo
+      free(message);
+      perror("Error while writing in fifo");
+      exit(EXIT_FAILURE);
+    }
+
     memset(message->message, 0, 1024);
   }
 
   free(message);
 
-  close(boxFd);
+  tfs_close(boxFd);
   close(sessionFd);
 
   return 0;
