@@ -40,15 +40,14 @@ int register_pub(const char* pipe_name, char* box_name) {
   ssize_t n;
   size_t len;
 
+  memset(message->message, 0, 1024);
   while ((n = read(sessionFd, message, sizeof(Message_Protocol))) > 0) {
     //* Reads what is in the fifo
 
     // if (write(1, message->message, sizeof(message->message))) {
     // }
 
-    while (n -= tfs_write(boxFd, message->message,
-                          strlen(message->message) + 1) > 0) {
-    }
+    tfs_write(boxFd, message->message, strlen(message->message) + 1);
 
     len = strlen(message->message);
 
@@ -101,14 +100,13 @@ int register_sub(const char* pipe_name, const char* box_name) {
   }
 
   while (tfs_read(boxFd, message->message, 1024) > 0) {
+    memset(message->message, 0, 1024);
     if (write(sessionFd, message, sizeof(Message_Protocol)) < 0) {
       //* Writes it to fifo
       free(message);
       perror("Error while writing in fifo");
       exit(EXIT_FAILURE);
     }
-
-    memset(message->message, 0, 1024);
   }
 
   free(message);

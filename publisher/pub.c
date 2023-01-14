@@ -65,6 +65,7 @@ int main(int argc, char **argv) {
   message = (Message_Protocol *)malloc(sizeof(Message_Protocol));
   message->code = 9;
   while (1) {
+    memset(message->message, 0, 1024);
     t = 0;
 
     if (fgets(message->message, 1024, stdin) == NULL) break;
@@ -83,8 +84,6 @@ int main(int argc, char **argv) {
       perror("Error while writing from stdin");
       exit(EXIT_FAILURE);
     }
-
-    memset(message->message, 0, 1024);
   }
 
   free(message);
