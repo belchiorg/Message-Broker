@@ -28,7 +28,8 @@ void list_boxes(const char *pipe_name) {
   while (1) {
     t = read(fd, box, sizeof(Message_Box));
 
-    if (t <= 0) break;
+    if (t <= 0)
+      break;
 
     n += t;
     fprintf(stdout, "%s %zu %zu %zu\n", box->box_name + 1, box->box_size,
@@ -127,7 +128,7 @@ int main(int argc, char **argv) {
     }
   }
 
-  unlink(reg_pipe);  //! -> mover poh final
+  unlink(reg_pipe); //! -> mover poh final
 
   if (mkfifo(reg_pipe, 0777)) {
     free(registry);

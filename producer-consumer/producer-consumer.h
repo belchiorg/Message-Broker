@@ -49,4 +49,4 @@ int pcq_enqueue(pc_queue_t *queue, void *elem);
 // If the queue is empty, sleep until the queue has an element
 void *pcq_dequeue(pc_queue_t *queue);
 
-#endif  // __PRODUCER_CONSUMER_H__
+#endif // __PRODUCER_CONSUMER_H__

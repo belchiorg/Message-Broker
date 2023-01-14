@@ -1,6 +1,7 @@
 #include "protocol.h"
 
 #include <fcntl.h>
+#include <pthread.h>
 #include <semaphore.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -13,19 +14,21 @@
 #include "../utils/utils.h"
 #include "message_box.h"
 
-int register_pub(const char* pipe_name, char* box_name) {
+int register_pub(const char *pipe_name, char *box_name) {
+  Message_Box *box = find_message_box(box_name);
+  if ((box == NULL) || box->n_publishers > 0) {
+    exit(EXIT_FAILURE);
+  }
+  if (box->n_publishers > 0) {
+    puts("bazei");
+    return -1;
+  }
+
   int boxFd = tfs_open(box_name, TFS_O_APPEND);
   if ((boxFd) < 0) {
     return -1;
   }
-
-  Message_Box* box = find_message_box(box_name);
-  if (box->n_publishers > 0) {
-    exit(EXIT_FAILURE);
-  }
   box->n_publishers++;
-
-  sleep(1);
 
   int sessionFd;
   if ((sessionFd = open(pipe_name, O_RDONLY)) < 0) {
@@ -34,14 +37,21 @@ int register_pub(const char* pipe_name, char* box_name) {
     exit(EXIT_FAILURE);
   }
 
-  Message_Protocol* message =
-      (Message_Protocol*)malloc(sizeof(Message_Protocol));
+  Message_Protocol *message =
+      (Message_Protocol *)malloc(sizeof(Message_Protocol));
 
   ssize_t n;
   size_t len;
 
   memset(message->message, 0, 1024);
+
+  // Cond Var para avisar que chegou novas cenas
   while ((read(sessionFd, message, sizeof(Message_Protocol))) > 0) {
+    mutex_lock(&box->n_messages_lock);
+    box->n_messages++;
+    mutex_unlock(&box->n_messages_lock);
+    pthread_cond_broadcast(&box->box_cond_var);
+
     //* Reads what is in the fifo
 
     if (write(1, message->message, sizeof(message->message))) {
@@ -69,7 +79,7 @@ int register_pub(const char* pipe_name, char* box_name) {
   return 0;
 }
 
-int register_sub(const char* pipe_name, const char* box_name) {
+int register_sub(const char *pipe_name, const char *box_name) {
   int boxFd = tfs_open(box_name, 0);
   if (boxFd < 0) {
     return -1;
@@ -81,11 +91,16 @@ int register_sub(const char* pipe_name, const char* box_name) {
     exit(EXIT_FAILURE);
   }
 
-  Message_Box* box = find_message_box(box_name);
+  Message_Box *box = find_message_box(box_name);
+
+  mutex_lock(&box->n_messages_lock);
+  int n_messages = box->n_messages++;
+  mutex_unlock(&box->n_messages_lock);
+
   box->n_subscribers++;
 
-  Message_Protocol* message =
-      (Message_Protocol*)malloc(sizeof(Message_Protocol));
+  Message_Protocol *message =
+      (Message_Protocol *)malloc(sizeof(Message_Protocol));
 
   message->code = 10;
 
@@ -102,8 +117,15 @@ int register_sub(const char* pipe_name, const char* box_name) {
   }
 
   ssize_t n;
+  while (1) {
+    mutex_lock(&box->n_messages_lock);
+    while (n_messages == box->n_messages) {
+      pthread_cond_wait(&box->box_cond_var, &box->n_messages_lock);
+    }
+    mutex_unlock(&box->n_messages_lock);
 
-  while ((n = tfs_read(boxFd, message->message, 1024)) >= 0) {
+    n = tfs_read(boxFd, message->message, 1024);
+    n_messages++;
     if (n == 0) continue;
     if (write(sessionFd, message, sizeof(Message_Protocol)) < 0) {
       //* Writes it to fifo
@@ -122,8 +144,8 @@ int register_sub(const char* pipe_name, const char* box_name) {
   return 0;
 }
 
-int create_box(const char* pipe_name, const char* box_name) {
-  Box_Protocol* response = (Box_Protocol*)malloc(sizeof(Box_Protocol));
+int create_box(const char *pipe_name, const char *box_name) {
+  Box_Protocol *response = (Box_Protocol *)malloc(sizeof(Box_Protocol));
 
   response->code = 4;
 
@@ -163,8 +185,8 @@ int create_box(const char* pipe_name, const char* box_name) {
   return 0;
 }
 
-int destroy_box(const char* pipe_name, const char* box_name) {
-  Box_Protocol* response = (Box_Protocol*)malloc(sizeof(Box_Protocol));
+int destroy_box(const char *pipe_name, const char *box_name) {
+  Box_Protocol *response = (Box_Protocol *)malloc(sizeof(Box_Protocol));
 
   response->code = 6;
 
@@ -193,7 +215,7 @@ int destroy_box(const char* pipe_name, const char* box_name) {
   return 0;
 }
 
-int send_list_boxes(const char* pipe_name) {
+int send_list_boxes(const char *pipe_name) {
   int pipe_fd = open(pipe_name, O_WRONLY);
   if (pipe_fd < 0) {
     perror("Error while opening Manager Fifo in list_boxes");

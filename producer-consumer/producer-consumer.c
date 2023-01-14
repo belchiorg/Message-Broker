@@ -57,7 +57,6 @@ int pcq_destroy(pc_queue_t *queue) {
 
 int pcq_enqueue(pc_queue_t *queue, void *elem) {
   mutex_lock(&queue->pcq_pusher_condvar_lock);
-
   while (queue->pcq_current_size == queue->pcq_capacity) {
     pthread_cond_wait(&queue->pcq_pusher_condvar,
                       &queue->pcq_pusher_condvar_lock);

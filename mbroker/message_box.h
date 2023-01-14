@@ -1,6 +1,7 @@
 #ifndef __BOX_H__
 #define __BOX_H__
 
+#include <pthread.h>
 #include <sys/types.h>
 
 typedef struct Message_Box {
@@ -11,6 +12,9 @@ typedef struct Message_Box {
   __uint64_t n_publishers;
   __uint64_t n_subscribers;
   int box_fd;
+  pthread_cond_t box_cond_var;
+  pthread_mutex_t n_messages_lock;
+  int n_messages;
 
 } Message_Box;
 

@@ -31,14 +31,14 @@ typedef struct Message_Protocol {
   __uint8_t code;
 } Message_Protocol;
 
-int register_pub(const char* pipeName, char* boxName);
+int register_pub(const char *pipeName, char *boxName);
 
-int register_sub(const char* pipeName, const char* boxName);
+int register_sub(const char *pipeName, const char *boxName);
 
-int create_box(const char* pipeName, const char* boxName);
+int create_box(const char *pipeName, const char *boxName);
 
-int destroy_box(const char* pipeName, const char* boxName);
+int destroy_box(const char *pipeName, const char *boxName);
 
-int send_list_boxes(const char* pipe_name);
+int send_list_boxes(const char *pipe_name);
 
 #endif

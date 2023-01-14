@@ -1,4 +1,5 @@
 #include <fcntl.h>
+#include <signal.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -9,33 +10,55 @@
 
 #define MAX_MESSAGE_LEN 292
 
+const char *register_pipe_name;
+
+Message_Protocol *message = NULL;
+Registry_Protocol *registry = NULL;
+int fd = -1;
+int session = -1;
+
+void sig_handler(int sig) {
+  (void)sig;
+  if (message != NULL) {
+    free(message);
+  }
+  if (registry != NULL) {
+    free(registry);
+  }
+  unlink(register_pipe_name);
+  close(fd);
+  close(session);
+  exit(EXIT_SUCCESS);
+}
+
 int main(int argc, char **argv) {
-  (void)argc;
-  (void)argv;
+  if (signal(SIGINT, sig_handler) == SIG_ERR) {
+  }
+  if (signal(SIGQUIT, sig_handler) == SIG_ERR) {
+  }
+  if (signal(SIGPIPE, sig_handler) == SIG_ERR) {
+  }
 
   if (argc != 4) {
     fprintf(stderr, "usage: pub <register_pipe_name> <pipe_name> <box_name>\n");
   }
 
-  const char *register_pipe_name = argv[1];  // Nome do pipe do Cliente
+  register_pipe_name = argv[1];     // Nome do pipe da sessão
   const char *pipe_name = argv[2];  // Canal que recebe as mensagens (servidor)
   const char *boxName = argv[3];    // Pipe de mensagem (Ficheiro TFS)
 
-  int fd = open(pipe_name, O_WRONLY | O_APPEND);
+  fd = open(pipe_name, O_WRONLY | O_APPEND);
   if (fd < 0) {
     perror("Error while opening fifo at publisher");
     exit(EXIT_FAILURE);
   }
 
-  Registry_Protocol *registry =
-      (Registry_Protocol *)malloc(sizeof(Registry_Protocol));
+  registry = (Registry_Protocol *)malloc(sizeof(Registry_Protocol));
 
   registry->code = 1;
   strcpy(registry->register_pipe_name, register_pipe_name);
   strcat(registry->box_name, "/");
   strncat(registry->box_name, boxName, 31);
-
-  unlink(register_pipe_name);  //!-> passou para o publisher
 
   if (write(fd, registry, sizeof(Registry_Protocol)) < 0) {
     free(registry);
@@ -49,16 +72,16 @@ int main(int argc, char **argv) {
   }
 
   free(registry);
+  registry = NULL;
 
   close(fd);
 
-  int session = open(register_pipe_name, O_WRONLY);
+  session = open(register_pipe_name, O_WRONLY);
   if (session < 0) {
     perror("Couldn't open session fifo");
     exit(EXIT_FAILURE);
   }
 
-  Message_Protocol *message;
   ssize_t n = 0;
   ssize_t t = 0;
 
@@ -87,8 +110,6 @@ int main(int argc, char **argv) {
   }
 
   free(message);
-
-  close(session);
 
   unlink(register_pipe_name);
 

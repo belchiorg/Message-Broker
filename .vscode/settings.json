@@ -15,6 +15,9 @@
         "string.h": "c",
         "message_box.h": "c",
         "future": "c",
-        "sstream": "c"
+        "sstream": "c",
+        "fcntl.h": "c",
+        "*.tcc": "c",
+        "wait.h": "c"
     }
 }
