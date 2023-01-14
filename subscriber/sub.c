@@ -91,15 +91,12 @@ int main(int argc, char **argv) {
         messages++;
       }
     }
-
-    puts("hey");
     fprintf(stdout, "%s\n", message->message);
 
     memset(message->message, 0, sizeof(Message_Protocol));
   }
 
-  while ((n = read(session, message, sizeof(Message_Protocol))) > 0) {
-    puts("hey");
+  while ((n = read(session, message, sizeof(Message_Protocol))) >= 0) {
     fprintf(stdout, "%s\n", message->message);
     messages++;
     memset(message->message, 0, sizeof(Message_Protocol));

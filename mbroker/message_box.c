@@ -5,13 +5,15 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "../fs/operations.h"
+
 __uint8_t is_empty_list = 1;
 
 Box_Node* box_list = NULL;
 
 __uint8_t check_if_empty_list() { return is_empty_list; }
 
-void add_box(const char* box_name) {
+void add_box(const char* box_name, int box_fd) {
   Message_Box* box = (Message_Box*)malloc(sizeof(Message_Box));
 
   box->code = 8;
@@ -20,6 +22,7 @@ void add_box(const char* box_name) {
   box->last = 0;
   box->n_publishers = 0;
   box->n_subscribers = 0;
+  box->box_fd = box_fd;
 
   Box_Node* node = (Box_Node*)malloc(sizeof(Box_Node));
   node->next = NULL;
@@ -55,6 +58,7 @@ int remove_box(const char* box_name) {
   if (strcmp(box_list->box->box_name, box_name) == 0) {
     Box_Node* ptr = box_list;
     box_list = box_list->next;
+    tfs_close(ptr->box->box_fd);
     free(ptr->box);
     free(ptr);
     if (box_list == NULL) is_empty_list = 1;
@@ -66,6 +70,8 @@ int remove_box(const char* box_name) {
         temp = current->next;
         Box_Node* next = temp->next;
         current->next = next;
+        tfs_close(temp->box->box_fd);
+        free(temp->box);
         free(temp);
         break;
       } else {

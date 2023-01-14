@@ -10,6 +10,8 @@ typedef struct Message_Box {
   __uint64_t box_size;
   __uint64_t n_publishers;
   __uint64_t n_subscribers;
+  int box_fd;
+
 } Message_Box;
 
 typedef struct Box_Node {
@@ -17,7 +19,7 @@ typedef struct Box_Node {
   struct Box_Node *next;
 } Box_Node;
 
-void add_box(const char *box_name);
+void add_box(const char *box_name, int box_fd);
 
 int remove_box(const char *box_name);
 

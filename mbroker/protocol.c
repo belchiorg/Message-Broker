@@ -41,17 +41,19 @@ int register_pub(const char* pipe_name, char* box_name) {
   size_t len;
 
   memset(message->message, 0, 1024);
-  while ((n = read(sessionFd, message, sizeof(Message_Protocol))) > 0) {
+  while ((read(sessionFd, message, sizeof(Message_Protocol))) > 0) {
     //* Reads what is in the fifo
 
-    // if (write(1, message->message, sizeof(message->message))) {
-    // }
+    if (write(1, message->message, sizeof(message->message))) {
+    }
 
-    tfs_write(boxFd, message->message, strlen(message->message) + 1);
+    len = strlen(message->message) + 1;
 
-    len = strlen(message->message);
+    n = tfs_write(boxFd, message->message, len);
 
-    box->box_size += len;
+    if (n >= 0) {
+      box->box_size += (size_t)n;
+    }
 
     memset(message->message, 0, sizeof(message->message));
   }
@@ -99,14 +101,17 @@ int register_sub(const char* pipe_name, const char* box_name) {
     memset(message->message, 0, 1024);
   }
 
-  while (tfs_read(boxFd, message->message, 1024) > 0) {
-    memset(message->message, 0, 1024);
+  ssize_t n;
+
+  while ((n = tfs_read(boxFd, message->message, 1024)) >= 0) {
+    if (n == 0) continue;
     if (write(sessionFd, message, sizeof(Message_Protocol)) < 0) {
       //* Writes it to fifo
       free(message);
       perror("Error while writing in fifo");
       exit(EXIT_FAILURE);
     }
+    memset(message->message, 0, 1024);
   }
 
   free(message);
@@ -126,16 +131,15 @@ int create_box(const char* pipe_name, const char* box_name) {
     response->response = -1;
     strcpy(response->error_message, "Message box already exists");
   } else {
-    int boxfd;
-    if ((boxfd = tfs_open(box_name, TFS_O_CREAT)) < 0) {
+    int box_fd;
+    if ((box_fd = tfs_open(box_name, TFS_O_CREAT)) < 0) {
       response->response = -1;
       strcpy(response->error_message, "Error while creating box");
     } else {
       response->response = 0;
-      add_box(box_name);
+      add_box(box_name, box_fd);
       memset(response->error_message, 0, strlen(response->error_message));
     }
-    tfs_close(boxfd);
   }
 
   int fd = open(pipe_name, O_WRONLY);
