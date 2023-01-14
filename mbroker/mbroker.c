@@ -15,6 +15,43 @@
 sem_t sessionsSem;
 pc_queue_t queue;
 
+void* workerThreadsFunc(void* arg) {
+  while (1) {
+    Registry_Protocol* registry =
+        (Registry_Protocol*)malloc(sizeof(Registry_Protocol));
+    // This loop reads the pipe, always expecting new registrys
+
+    if ((read(fd, registry, sizeof(Registry_Protocol))) != 0) {
+      // Received a registry
+
+      switch (registry->code) {
+        case 1:
+          register_pub(registry->register_pipe_name, registry->box_name);
+          break;
+
+        case 2:
+          register_sub(registry->register_pipe_name, registry->box_name);
+          break;
+
+        case 3:
+          create_box(registry->register_pipe_name, registry->box_name);
+          break;
+
+        case 5:
+          destroy_box(registry->register_pipe_name, registry->box_name);
+          break;
+
+        case 7:
+          send_list_boxes(registry->register_pipe_name);
+          break;
+
+        default:
+          break;
+      }
+    }
+  }
+}
+
 int main(int argc, char** argv) {
   // expected argv:
   // 0 - nome do programa
