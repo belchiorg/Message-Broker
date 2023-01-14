@@ -35,16 +35,22 @@ int main(int argc, char **argv) {
   strcat(registry->box_name, "/");
   strncat(registry->box_name, boxName, 31);
 
+  unlink(register_pipe_name);  //!-> passou para o publisher
+
   if (write(fd, registry, sizeof(Registry_Protocol)) < 0) {
     free(registry);
     perror("Error while writing in fifo");
     exit(EXIT_FAILURE);
   }
 
+  if (mkfifo(register_pipe_name, 0777) < 0) {
+    perror("Error while creating fifo");
+    exit(EXIT_FAILURE);
+  }
+
   free(registry);
 
   close(fd);
-  sleep(2);  //! Yau <- tirar isto
 
   int session = open(register_pipe_name, O_WRONLY);
   if (session < 0) {
@@ -52,28 +58,40 @@ int main(int argc, char **argv) {
     exit(EXIT_FAILURE);
   }
 
-  char buffer[MESSAGE_SIZE];
-  memset(buffer, 0, MESSAGE_SIZE);
+  Message_Protocol *message;
+  ssize_t n = 0;
+  ssize_t t = 0;
 
+  message = (Message_Protocol *)malloc(sizeof(Message_Protocol));
+  message->code = 9;
   while (1) {
     //* Versão anti-bug das threads:
-    ssize_t n = read(0, buffer, 1);
-    if (n < 0) {
-      perror("Error while reading from stdin");
-      exit(EXIT_FAILURE);
-    }
 
-    if (buffer[0] == '0') {
+    t = 0;
+
+    if (fgets(message->message, 1024, stdin) == NULL) break;
+
+    if (message->message[0] == '*') {
       break;
     }
 
-    if (write(session, buffer, strlen(buffer)) < 0) {
-      perror("Error while writing to session fifo");
+    t = (ssize_t)strlen(message->message);
+    message->message[t - 1] = 0;
+
+    n += t;
+
+    if (write(session, message, sizeof(Message_Protocol)) < 0) {
+      free(message);
+      perror("Error while writing from stdin");
       exit(EXIT_FAILURE);
     }
 
-    memset(buffer, 0, MESSAGE_SIZE);
+    memset(message->message, 0, 1024);
   }
+
+  free(message);
+
+  printf("%lu", n);
 
   close(session);
 

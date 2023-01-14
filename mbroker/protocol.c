@@ -13,26 +13,20 @@
 #include "../utils/utils.h"
 #include "message_box.h"
 
-int register_pub(const char* pipe_name, char* box_name, Box_Node* box_list) {
+int register_pub(const char* pipe_name, char* box_name) {
   int boxFd = tfs_open(box_name, TFS_O_APPEND);
   if ((boxFd) < 0) {
-    perror("Error while opening box");
-    exit(EXIT_FAILURE);
+    return -1;
   }
 
   // TODO: Verify if there are any publishers
-  Message_Box* box = find_message_box(box_name, box_list);
+  Message_Box* box = find_message_box(box_name);
   if (box->n_publishers > 0) {
     exit(EXIT_FAILURE);
   }
   box->n_publishers++;
 
-  //* unlink(pipe_name); -> passou para o publisher
-
-  if (mkfifo(pipe_name, 0777) < 0) {
-    perror("Error while creating fifo");
-    exit(EXIT_FAILURE);
-  }
+  sleep(1);
 
   int sessionFd;
   if ((sessionFd = open(pipe_name, O_RDONLY)) < 0) {
@@ -40,32 +34,42 @@ int register_pub(const char* pipe_name, char* box_name, Box_Node* box_list) {
     exit(EXIT_FAILURE);
   }
 
-  char message[MESSAGE_SIZE];
+  Message_Protocol* message =
+      (Message_Protocol*)malloc(sizeof(Message_Protocol));
+
   ssize_t n;
 
-  while ((n = read(sessionFd, message, MESSAGE_SIZE)) > 0) {
+  while ((n = read(sessionFd, message, sizeof(Message_Protocol))) > 0) {
     //* Reads what is in the fifo
 
-    if (tfs_write(boxFd, message, (size_t)n) <= 0) {
+    if (write(1, message->message, MESSAGE_SIZE)) {
+    }
+
+    if (tfs_write(boxFd, message->message, strlen(message->message) + 1) <= 0) {
       //* Writes it to the file System
+      free(message);
       perror("Error while writing in fifo");
       exit(EXIT_FAILURE);
     }
 
-    memset(message, 0, MESSAGE_SIZE);
+    box->box_size += (size_t)strlen(message->message);
+
+    memset(message, 0, sizeof(Message_Protocol));
   }
+
+  close(sessionFd);
+
+  free(message);
 
   tfs_close(boxFd);
 
   return 0;
 }
 
-int register_sub(const char* pipe_name, const char* box_name,
-                 Box_Node* box_list) {
+int register_sub(const char* pipe_name, const char* box_name) {
   int boxFd = tfs_open(box_name, 0);
   if (boxFd < 0) {
-    perror("Error while creating/opening box");
-    exit(EXIT_FAILURE);
+    return -1;
   }
 
   int sessionFd;
@@ -74,40 +78,32 @@ int register_sub(const char* pipe_name, const char* box_name,
     exit(EXIT_FAILURE);
   }
 
-  Message_Box* box = find_message_box(box_name, box_list);
+  Message_Box* box = find_message_box(box_name);
   box->n_subscribers++;
 
-  char message[MESSAGE_SIZE];
   ssize_t n;
 
-  if (tfs_read(boxFd, message, MESSAGE_SIZE) > 0) {
-    //* Sends byte Code
-    //! Passar esta merda para struct
+  Message_Protocol* message =
+      (Message_Protocol*)malloc(sizeof(Message_Protocol));
 
-    // if (write(sessionFd, "10|", 3) < 0) {
-    //   //* Writes it to fifo
-    //   perror("Error while writing in fifo");
-    //   exit(EXIT_FAILURE);
-    // }
+  message->code = 10;
 
-    if (write(sessionFd, message, MESSAGE_SIZE) < 0) {
-      //* Writes it to fifo
-      perror("Error while writing in fifo");
-      exit(EXIT_FAILURE);
-    }
-  }
-
-  while ((n = tfs_read(boxFd, message, MESSAGE_SIZE)) > 0) {
+  while ((n = tfs_read(boxFd, message->message, sizeof(message->message))) >
+             0 ||
+         box->n_publishers > 0) {
     //* Reads what is in the file
 
     if (write(sessionFd, message, MESSAGE_SIZE) < 0) {
       //* Writes it to fifo
+      free(message);
       perror("Error while writing in fifo");
       exit(EXIT_FAILURE);
     }
 
-    memset(message, 0, MESSAGE_SIZE);
+    memset(message, 0, sizeof(Message_Protocol));
   }
+
+  free(message);
 
   close(boxFd);
   close(sessionFd);
@@ -115,13 +111,12 @@ int register_sub(const char* pipe_name, const char* box_name,
   return 0;
 }
 
-int create_box(const char* pipe_name, const char* box_name,
-               Box_Node* box_list) {
+int create_box(const char* pipe_name, const char* box_name) {
   Box_Protocol* response = (Box_Protocol*)malloc(sizeof(Box_Protocol));
 
   response->code = 4;
 
-  if (find_message_box(box_name, box_list) != NULL) {
+  if (find_message_box(box_name) != NULL) {
     response->response = -1;
     strcpy(response->error_message, "Message box already exists");
   } else {
@@ -131,6 +126,7 @@ int create_box(const char* pipe_name, const char* box_name,
       strcpy(response->error_message, "Error while creating box");
     } else {
       response->response = 0;
+      add_box(box_name);
       memset(response->error_message, 0, strlen(response->error_message));
     }
     tfs_close(boxfd);
@@ -144,17 +140,12 @@ int create_box(const char* pipe_name, const char* box_name,
     exit(EXIT_FAILURE);
   }
 
-  add_box(box_name, box_list);
-
-  puts("ey");
-
   close(fd);
   free(response);
   return 0;
 }
 
-int destroy_box(const char* pipe_name, const char* box_name,
-                Box_Node* box_list) {
+int destroy_box(const char* pipe_name, const char* box_name) {
   Box_Protocol* response = (Box_Protocol*)malloc(sizeof(Box_Protocol));
 
   response->code = 6;
@@ -175,7 +166,7 @@ int destroy_box(const char* pipe_name, const char* box_name,
     exit(EXIT_FAILURE);
   }
 
-  remove_box(box_name, box_list);
+  remove_box(box_name);
 
   close(file);
 
@@ -184,26 +175,14 @@ int destroy_box(const char* pipe_name, const char* box_name,
   return 0;
 }
 
-int send_list_boxes(const char* pipe_name, Box_Node* box_list) {
-  Box_Node* ptr = box_list;
-
-  fprintf(stdout, "ERROR %s\n", box_list->box->box_name);
-
+int send_list_boxes(const char* pipe_name) {
   int pipe_fd = open(pipe_name, O_WRONLY);
   if (pipe_fd < 0) {
     perror("Error while opening Manager Fifo in list_boxes");
     exit(EXIT_FAILURE);
   }
 
-  while (ptr != NULL) {
-    Message_Box* box = ptr->box;
-    fprintf(stdout, "ERROR %s\n", box->box_name);
-    if (write(pipe_fd, box, sizeof(Message_Box)) < 0) {
-      perror("Error while writing in manager Fifo");
-      exit(EXIT_FAILURE);
-    }
-    ptr = ptr->next;
-  }
+  send_list_boxes_so_que_la_do_outro_ficheiro(pipe_fd);
 
   close(pipe_fd);
 

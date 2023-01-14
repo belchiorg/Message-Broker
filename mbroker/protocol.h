@@ -26,14 +26,19 @@ typedef struct Box_Protocol {
   char error_message[1024];
 } Box_Protocol;
 
-int register_pub(const char* pipeName, char* boxName, Box_Node* box_list);
+typedef struct Message_Protocol {
+  char message[1024];
+  __uint8_t code;
+} Message_Protocol;
 
-int register_sub(const char* pipeName, const char* boxName, Box_Node* box_list);
+int register_pub(const char* pipeName, char* boxName);
 
-int create_box(const char* pipeName, const char* boxName, Box_Node* box_list);
+int register_sub(const char* pipeName, const char* boxName);
 
-int destroy_box(const char* pipeName, const char* boxName, Box_Node* box_list);
+int create_box(const char* pipeName, const char* boxName);
 
-int send_list_boxes(const char* pipe_name, Box_Node* box_list);
+int destroy_box(const char* pipeName, const char* boxName);
+
+int send_list_boxes(const char* pipe_name);
 
 #endif

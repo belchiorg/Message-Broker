@@ -55,15 +55,37 @@ int main(int argc, char **argv) {
     exit(EXIT_FAILURE);
   }
 
-  char message[MESSAGE_SIZE];
+  Message_Protocol *message =
+      (Message_Protocol *)malloc(sizeof(Message_Protocol));
 
-  while (read(session, message, MESSAGE_SIZE) > 0) {
-    //! Mudar esta merda para struct
-    // TODO: implement the cycle that reads new messages from the server
-    if (write(1, message, MESSAGE_SIZE)) {
+  int offset = 0;
+
+  while (read(session, message, sizeof(Message_Protocol)) > 0) {
+    while (offset < 1024 && !(message->message[offset] == '\0' &&
+                              message->message[offset + 4] == '\0')) {
+      if (message->message[offset] == '\0') {
+        if (write(1, "\n", 1)) {
+        }
+      } else {
+        if (write(1, message->message + offset, 1)) {
+        }
+      }
+      offset++;
     }
-    memset(message, 0, MESSAGE_SIZE);
+
+    if (write(1, "\n", 1)) {
+    }
+
+    if (offset >= 1024) {
+      break;
+    }
+
+    offset += 2;
+
+    memset(message, 0, sizeof(Message_Protocol));
   }
+
+  free(message);
 
   close(session);
 

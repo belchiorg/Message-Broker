@@ -3,12 +3,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 __uint8_t is_empty_list = 1;
 
+Box_Node* box_list = NULL;
+
 __uint8_t check_if_empty_list() { return is_empty_list; }
 
-void add_box(const char* box_name, Box_Node* box_list) {
+void add_box(const char* box_name) {
   Message_Box* box = (Message_Box*)malloc(sizeof(Message_Box));
 
   box->code = 8;
@@ -23,18 +26,20 @@ void add_box(const char* box_name, Box_Node* box_list) {
   node->box = box;
   Box_Node* ptr = box_list;
 
-  if (check_if_empty_list() == 1 ||
-      strcmp((ptr->box)->box_name, box->box_name) > 0) {
-    puts("heya");
+  if (check_if_empty_list() == 1) {
     box_list = node;
-    if (box_list == NULL) puts("Nao sou null");
+  } else if (strcmp((ptr->box)->box_name, box->box_name) > 0) {
+    node->next = box_list;
+    box_list = node;
   } else {
     while ((ptr->next != NULL) &&
            (strcmp(((ptr->next)->box)->box_name, box->box_name) < 0)) {
       ptr = ptr->next;
     }
     if (ptr->next == NULL) {
+      ptr->box->last = 0;
       node->box->last = 1;
+      ptr->next = node;
     } else {
       node->next = ptr->next;
       ptr->next = node;
@@ -43,24 +48,24 @@ void add_box(const char* box_name, Box_Node* box_list) {
   is_empty_list = 0;
 }
 
-void remove_box(const char* box_name, Box_Node* box_list) {
+int remove_box(const char* box_name) {
   if (box_list == NULL) {
-    return;
+    return 0;
   }
   if (strcmp(box_list->box->box_name, box_name) == 0) {
     Box_Node* ptr = box_list;
+    box_list = box_list->next;
     free(ptr->box);
     free(ptr);
-    box_list = box_list->next;
     if (box_list == NULL) is_empty_list = 1;
   } else {
     Box_Node* temp;
     Box_Node* current = box_list;
-    while (box_list->next != NULL) {
+    while (current->next != NULL) {
       if (strcmp(current->next->box->box_name, box_name) == 0) {
         temp = current->next;
-        Box_Node* post = temp->next;
-        current->next = post;
+        Box_Node* next = temp->next;
+        current->next = next;
         free(temp);
         break;
       } else {
@@ -68,8 +73,10 @@ void remove_box(const char* box_name, Box_Node* box_list) {
       }
     }
   }
+  return 1;
 }
-Message_Box* find_message_box(const char* box_name, Box_Node* box_list) {
+
+Message_Box* find_message_box(const char* box_name) {
   if (box_list == NULL) {
     return NULL;
   }
@@ -78,11 +85,26 @@ Message_Box* find_message_box(const char* box_name, Box_Node* box_list) {
   } else {
     Box_Node* next_box = box_list->next;
     while (next_box != NULL) {
-      next_box = next_box->next;
       if (strcmp(next_box->box->box_name, box_name) == 0) {
         return next_box->box;
       }
+      next_box = next_box->next;
     }
   }
   return NULL;
+}
+
+void send_list_boxes_so_que_la_do_outro_ficheiro(int pipe_fd) {
+  Box_Node* ptr = box_list;
+
+  while (ptr != NULL) {
+    Message_Box* box = ptr->box;
+    fprintf(stdout, "%s %zu %zu %zu\n", box->box_name + 1, box->box_size,
+            box->n_publishers, box->n_subscribers);
+    if (write(pipe_fd, box, sizeof(Message_Box)) < 0) {
+      perror("Error while writing in manager Fifo");
+      exit(EXIT_FAILURE);
+    }
+    ptr = ptr->next;
+  }
 }

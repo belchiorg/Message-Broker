@@ -17,12 +17,14 @@ typedef struct Box_Node {
   struct Box_Node *next;
 } Box_Node;
 
-void add_box(const char *box_name, Box_Node *box_list);
+void add_box(const char *box_name);
 
-void remove_box(const char *box_name, Box_Node *box_list);
+int remove_box(const char *box_name);
 
-Message_Box *find_message_box(const char *box_name, Box_Node *box_list);
+Message_Box *find_message_box(const char *box_name);
 
 __uint8_t check_if_empty_list();
+
+void send_list_boxes_so_que_la_do_outro_ficheiro(int pipe_fd);
 
 #endif

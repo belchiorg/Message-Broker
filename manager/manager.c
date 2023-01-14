@@ -13,7 +13,6 @@ static void print_usage() {
 }
 
 void list_boxes(const char *pipe_name) {
-  fprintf(stdout, "%s\n", pipe_name);
   int fd = open(pipe_name, O_RDONLY);
   if (fd < 0) {
     perror("Error while opening fifo at manager");
@@ -22,18 +21,24 @@ void list_boxes(const char *pipe_name) {
 
   Message_Box *box = (Message_Box *)malloc(sizeof(Message_Box));
 
-  int is_empty = 1;
+  ssize_t n = 0;
 
-  while (read(fd, box, sizeof(Message_Box)) > 0) {
-    is_empty = 0;
-    fprintf(stdout, "%s %zu %zu %zu\n", box->box_name, box->box_size,
+  ssize_t t;
+
+  while (1) {
+    t = read(fd, box, sizeof(Message_Box));
+
+    if (t <= 0) break;
+
+    n += t;
+    fprintf(stdout, "%s %zu %zu %zu\n", box->box_name + 1, box->box_size,
             box->n_publishers, box->n_subscribers);
+
     memset(box, 0, sizeof(Message_Box));
   }
-
   free(box);
 
-  if (is_empty) {
+  if (n == 0) {
     fprintf(stdout, "NO BOXES FOUND\n");
   }
 
