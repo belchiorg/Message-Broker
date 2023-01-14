@@ -49,6 +49,10 @@ int pcq_destroy(pc_queue_t *queue) {
 
   mutex_destroy(&queue->pcq_popper_condvar_lock);
 
+  pthread_cond_destroy(&queue->pcq_pusher_condvar);
+
+  pthread_cond_destroy(&queue->pcq_popper_condvar);
+
   return 0;
 }
 

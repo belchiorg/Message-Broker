@@ -134,6 +134,14 @@ int create_box(const char* pipe_name, const char* box_name) {
 
   int fd = open(pipe_name, O_WRONLY);
 
+  __uint8_t code = 4;
+
+  if (write(fd, &code, 1) < 0) {
+    free(response);
+    perror("Error while writing in manager fifo");
+    exit(EXIT_FAILURE);
+  }
+
   if (write(fd, response, sizeof(Box_Protocol)) < 0) {
     free(response);
     perror("Error while writing in manager fifo");

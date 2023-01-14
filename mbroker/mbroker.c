@@ -15,40 +15,37 @@
 sem_t sessionsSem;
 pc_queue_t queue;
 
-void* workerThreadsFunc(void* arg) {
+void* workerThreadsFunc() {
   while (1) {
-    Registry_Protocol* registry =
-        (Registry_Protocol*)malloc(sizeof(Registry_Protocol));
-    // This loop reads the pipe, always expecting new registrys
+    puts("he2");
+    Registry_Protocol* registry = pcq_dequeue(&queue);
+    switch (registry->code) {
+      case 1:
+        register_pub(registry->register_pipe_name, registry->box_name);
+        break;
 
-    if ((read(fd, registry, sizeof(Registry_Protocol))) != 0) {
-      // Received a registry
+      case 2:
+        register_sub(registry->register_pipe_name, registry->box_name);
+        break;
 
-      switch (registry->code) {
-        case 1:
-          register_pub(registry->register_pipe_name, registry->box_name);
-          break;
+      case 3:
+        puts("he1");
+        create_box(registry->register_pipe_name, registry->box_name);
+        puts("he1");
+        break;
 
-        case 2:
-          register_sub(registry->register_pipe_name, registry->box_name);
-          break;
+      case 5:
+        destroy_box(registry->register_pipe_name, registry->box_name);
+        break;
 
-        case 3:
-          create_box(registry->register_pipe_name, registry->box_name);
-          break;
+      case 7:
+        send_list_boxes(registry->register_pipe_name);
+        break;
 
-        case 5:
-          destroy_box(registry->register_pipe_name, registry->box_name);
-          break;
-
-        case 7:
-          send_list_boxes(registry->register_pipe_name);
-          break;
-
-        default:
-          break;
-      }
+      default:
+        break;
     }
+    free(registry);
   }
 }
 
@@ -66,11 +63,6 @@ int main(int argc, char** argv) {
   const char* pipeName = argv[1];
   const size_t maxSessions = (size_t)atoi(argv[2]);
 
-  pthread_t workerThreads[maxSessions];
-  for (int i = 0; i < maxSessions; i++) {
-    pthread_create(workerThreads[i], NULL, &workerThreadFunc, NULL);
-  }
-
   pcq_create(&queue, (size_t)maxSessions);
 
   if (sem_init(&sessionsSem, 0, (unsigned int)maxSessions) == -1) {
@@ -79,6 +71,11 @@ int main(int argc, char** argv) {
   }
 
   tfs_init(NULL);
+
+  pthread_t workerThreads[maxSessions];
+  for (int i = 0; i < maxSessions; i++) {
+    pthread_create(&workerThreads[i], NULL, &workerThreadsFunc, NULL);
+  }
 
   unlink(pipeName);
 
@@ -93,40 +90,27 @@ int main(int argc, char** argv) {
     exit(EXIT_FAILURE);
   }
 
+  void* protocol;
+  __uint8_t code;
   while (1) {
-    Registry_Protocol* registry =
-        (Registry_Protocol*)malloc(sizeof(Registry_Protocol));
-    // This loop reads the pipe, always expecting new registrys
-
-    if ((read(fd, registry, sizeof(Registry_Protocol))) != 0) {
-      // Received a registry
-
-      switch (registry->code) {
-        case 1:
-          register_pub(registry->register_pipe_name, registry->box_name);
-          break;
-
-        case 2:
-          register_sub(registry->register_pipe_name, registry->box_name);
-          break;
-
-        case 3:
-          create_box(registry->register_pipe_name, registry->box_name);
-          break;
-
-        case 5:
-          destroy_box(registry->register_pipe_name, registry->box_name);
-          break;
-
-        case 7:
-          send_list_boxes(registry->register_pipe_name);
-          break;
-
-        default:
-          break;
+    if (read(fd, &code, 1) <= 0) {
+      puts("error");
+    }
+    if (code == 3 || code == 5 || code == 7) {
+      protocol = (Box_Protocol*)malloc(sizeof(Box_Protocol));
+      if ((read(fd, protocol, sizeof(Box_Protocol))) != 0) {
+        // Received a registry
+        write(1, protocol, sizeof(Box_Protocol));
+        pcq_enqueue(&queue, protocol);
+      }
+    } else if (code == 1 || code == 2) {
+      protocol = (Registry_Protocol*)malloc(sizeof(Registry_Protocol));
+      if ((read(fd, protocol, sizeof(Registry_Protocol))) != 0) {
+        // Received a registry
+        write(1, protocol, sizeof(Registry_Protocol));
+        pcq_enqueue(&queue, protocol);
       }
     }
-    free(registry);
   }
 
   pcq_destroy(&queue);
