@@ -9,11 +9,11 @@
  * @brief Show the right way to insert the manager command.
  */
 static void print_usage() {
-  fprintf(stderr,
-          "usage: \n"
-          "   manager <register_pipe_name> <pipe_name> create <box_name>\n"
-          "   manager <register_pipe_name> <pipe_name> remove <box_name>\n"
-          "   manager <register_pipe_name> <pipe_name> list\n");
+    fprintf(stderr,
+            "usage: \n"
+            "   manager <register_pipe_name> <pipe_name> create <box_name>\n"
+            "   manager <register_pipe_name> <pipe_name> remove <box_name>\n"
+            "   manager <register_pipe_name> <pipe_name> list\n");
 }
 
 Message_Box *box = NULL;
@@ -30,162 +30,187 @@ int server_fd = -1;
  * @param sig signal received
  */
 void sig_handler(int sig) {
-  (void)sig;
-  if (response != NULL) {
-    free(response);
-  }
-  if (registry != NULL) {
-    free(registry);
-  }
-  if (box != NULL) {
-    free(box);
-  }
+    (void)sig;
+    if (response != NULL) {
+        free(response);
+    }
+    if (registry != NULL) {
+        free(registry);
+    }
+    if (box != NULL) {
+        free(box);
+    }
 
-  unlink(reg_pipe);
-  close(session_fd);
-  close(server_fd);
+    unlink(reg_pipe);
+    close(session_fd);
+    close(server_fd);
 
-  exit(EXIT_SUCCESS);
+    exit(EXIT_SUCCESS);
 }
 
 /**
- * @brief Signal handler that unlinks the pipe, destroys all the box messages
- * and closes TFS. Kills all the threads in use too.
+ * @brief list all the boxe messages in the session
  *
  * @param sig signal received
  */
 void list_boxes() {
-  session_fd = open(reg_pipe, O_RDONLY);
-  if (session_fd < 0) {
-    perror("Error while opening fifo at manager");
-    exit(EXIT_FAILURE);
-  }
+    // Open the pipe sessions
+    session_fd = open(reg_pipe, O_RDONLY);
+    if (session_fd < 0) {
+        perror("Error while opening fifo at manager");
+        exit(EXIT_FAILURE);
+    }
 
-  box = (Message_Box *)malloc(sizeof(Message_Box));
+    // Allocate memory for the box message
+    box = (Message_Box *)malloc(sizeof(Message_Box));
 
-  ssize_t n = 0;
+    ssize_t n = 0;
 
-  ssize_t t;
+    ssize_t t;
 
-  while (1) {
-    t = read(session_fd, box, sizeof(Message_Box));
+    // read until don't find more boxes in the session
+    while (1) {
+        t = read(session_fd, box, sizeof(Message_Box));
 
-    if (t <= 0) break;
+        if (t <= 0)
+            break;
 
-    n += t;
-    fprintf(stdout, "%s %zu %zu %zu\n", box->box_name + 1, box->box_size,
-            box->n_publishers, box->n_subscribers);
+        n += t;
+        fprintf(stdout, "%s %zu %zu %zu\n", box->box_name + 1, box->box_size,
+                box->n_publishers, box->n_subscribers);
 
-    memset(box, 0, sizeof(Message_Box));
-  }
-  free(box);
+        // Resets the box
+        memset(box, 0, sizeof(Message_Box));
+    }
+    free(box);
 
-  if (n == 0) {
-    fprintf(stdout, "NO BOXES FOUND\n");
-  }
+    // If there is no boxes
+    if (n == 0) {
+        fprintf(stdout, "NO BOXES FOUND\n");
+    }
 
-  unlink(reg_pipe);
+    unlink(reg_pipe);
 
-  close(session_fd);
+    close(session_fd);
 }
 
-void create_delete_box() {
-  session_fd = open(reg_pipe, O_RDONLY | O_APPEND);
-  if (session_fd < 0) {
-    perror("Error while opening fifo at manager");
-    exit(EXIT_FAILURE);
-  }
+/**
+ * @brief Open the Pipe to read and print in stdout if the box will be created
+ * or not if there is
+ */
+void update_boxes() {
+    // Open the pipe
+    session_fd = open(reg_pipe, O_RDONLY | O_APPEND);
+    if (session_fd < 0) {
+        perror("Error while opening fifo at manager");
+        exit(EXIT_FAILURE);
+    }
 
-  response = (Box_Protocol *)malloc(sizeof(Box_Protocol));
+    // Allocate memory for the response
+    response = (Box_Protocol *)malloc(sizeof(Box_Protocol));
 
-  if (read(session_fd, response, sizeof(Box_Protocol)) < 0) {
+    // Read the box protocol of the session
+    if (read(session_fd, response, sizeof(Box_Protocol)) < 0) {
+        free(response);
+        perror("Error while reading manager fifo");
+        exit(EXIT_FAILURE);
+    }
+
+    // When we create the box in create_box and it is created successfully
+    // it updates the value of the response to 0. Here we check if the value is
+    // 0 if created or not in other way.
+    if (response->response == 0) {
+        fprintf(stdout, "OK\n");
+    } else {
+        fprintf(stdout, "ERROR %s\n", response->error_message);
+    }
+
     free(response);
-    perror("Error while reading manager fifo");
-    exit(EXIT_FAILURE);
-  }
 
-  if (response->response == 0) {
-    fprintf(stdout, "OK\n");
-  } else {
-    fprintf(stdout, "ERROR %s\n", response->error_message);
-  }
+    unlink(reg_pipe);
 
-  free(response);
-
-  unlink(reg_pipe);
-
-  close(session_fd);
+    close(session_fd);
 }
 
 int main(int argc, char **argv) {
-  if (signal(SIGINT, sig_handler) == SIG_ERR) {
-  }
-  if (signal(SIGTERM, sig_handler) == SIG_ERR) {
-  }
-  if (signal(SIGQUIT, sig_handler) == SIG_ERR) {
-  }
-
-  if (argc != 4 && argc != 5) {
-    print_usage();
-    exit(EXIT_FAILURE);
-  }
-
-  reg_pipe = argv[1];
-  char *pipe_name = argv[2];
-  char *action = argv[3];
-
-  server_fd = open(pipe_name, O_WRONLY | O_APPEND);
-  if (server_fd < 0) {
-    fprintf(stderr, "Error while opening server fifo at manager");
-    raise(SIGTERM);
-  }
-
-  registry = (Registry_Protocol *)malloc(sizeof(Registry_Protocol));
-
-  if (argc == 4) {
-    if (strcmp(action, "list") == 0) {
-      registry->code = 7;
-      strcpy(registry->register_pipe_name, reg_pipe);
-    } else {
-      print_usage();
-      raise(SIGTERM);
+    // Sets handlers for signals
+    if (signal(SIGINT, sig_handler) == SIG_ERR) {
     }
-  } else {
-    strcpy(registry->register_pipe_name, reg_pipe);
-    strcat(registry->box_name, "/");
-    strcat(registry->box_name, argv[4]);
-
-    if (strcmp(action, "create") == 0) {
-      registry->code = 3;
-    } else if (strcmp(action, "remove") == 0) {
-      registry->code = 5;
-    } else {
-      print_usage();
-      raise(SIGTERM);
+    if (signal(SIGTERM, sig_handler) == SIG_ERR) {
     }
-  }
+    if (signal(SIGQUIT, sig_handler) == SIG_ERR) {
+    }
 
-  if (mkfifo(reg_pipe, 0777)) {
-    fprintf(stderr, "Error while making manager fifo");
-    raise(SIGTERM);
-  }
+    if (argc != 4 && argc != 5) {
+        print_usage();
+        exit(EXIT_FAILURE);
+    }
 
-  if (write(server_fd, registry, sizeof(Registry_Protocol)) < 0) {
-    fprintf(stderr, "Error while writing in fifo");
-    raise(SIGTERM);
-  }
+    reg_pipe = argv[1];
+    char *pipe_name = argv[2];
+    char *action = argv[3];
 
-  close(server_fd);
+    // Opens the server fifo
+    server_fd = open(pipe_name, O_WRONLY | O_APPEND);
+    if (server_fd < 0) {
+        fprintf(stderr, "Error while opening server fifo at manager");
+        raise(SIGTERM);
+    }
 
-  if (registry->code == 7) {
-    free(registry);
-    list_boxes();
-  } else {
-    free(registry);
-    create_delete_box();
-  }
+    // Allocs memory for the registry
+    registry = (Registry_Protocol *)malloc(sizeof(Registry_Protocol));
 
-  unlink(reg_pipe);
+    if (argc == 4) {
+        if (strcmp(action, "list") == 0) {
+            // List code -> 7
+            registry->code = 7;
+            strcpy(registry->register_pipe_name, reg_pipe);
+        } else {
+            print_usage();
+            raise(SIGTERM);
+        }
+    } else {
+        // Copy infos to registry
+        strcpy(registry->register_pipe_name, reg_pipe);
+        strcat(registry->box_name, "/");
+        strcat(registry->box_name, argv[4]);
 
-  return 0;
+        if (strcmp(action, "create") == 0) {
+            // List code -> 3
+            registry->code = 3;
+        } else if (strcmp(action, "remove") == 0) {
+            // List code -> 5
+            registry->code = 5;
+        } else {
+            print_usage();
+            raise(SIGTERM);
+        }
+    }
+
+    // Creates client session fifo
+    if (mkfifo(reg_pipe, 0777)) {
+        fprintf(stderr, "Error while making manager fifo");
+        raise(SIGTERM);
+    }
+
+    // Write the registry protocol in the server file
+    if (write(server_fd, registry, sizeof(Registry_Protocol)) < 0) {
+        fprintf(stderr, "Error while writing in fifo");
+        raise(SIGTERM);
+    }
+
+    close(server_fd);
+
+    // Request to delete a box
+    if (registry->code == 7) {
+        free(registry);
+        list_boxes();
+    } else {
+        free(registry);
+        update_boxes();
+    }
+
+    unlink(reg_pipe);
+
+    return 0;
 }

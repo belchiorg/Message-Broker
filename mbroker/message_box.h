@@ -5,22 +5,22 @@
 #include <sys/types.h>
 
 typedef struct Message_Box {
-  __uint8_t code;
-  __uint8_t last;
-  char box_name[32];
-  __uint64_t box_size;
-  __uint64_t n_publishers;
-  __uint64_t n_subscribers;
-  int box_fd;
-  pthread_cond_t box_cond_var;
-  pthread_mutex_t n_messages_lock;
-  int n_messages;
+    __uint8_t code;
+    __uint8_t last;
+    char box_name[32];
+    __uint64_t box_size;
+    __uint64_t n_publishers;
+    __uint64_t n_subscribers;
+    int box_fd;
+    pthread_cond_t box_cond_var;
+    pthread_mutex_t n_messages_lock;
+    int n_messages;
 
 } Message_Box;
 
 typedef struct Box_Node {
-  Message_Box *box;
-  struct Box_Node *next;
+    Message_Box *box;
+    struct Box_Node *next;
 } Box_Node;
 
 /**
