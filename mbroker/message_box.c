@@ -62,6 +62,7 @@ int remove_box(const char *box_name) {
     box_list = box_list->next;
     pthread_cond_destroy(&ptr->box->box_cond_var);
     tfs_close(ptr->box->box_fd);
+    tfs_unlink(ptr->box->box_name);
     free(ptr->box);
     free(ptr);
     if (box_list == NULL) is_empty_list = 1;
@@ -75,6 +76,7 @@ int remove_box(const char *box_name) {
         current->next = next;
         pthread_cond_destroy(&temp->box->box_cond_var);
         tfs_close(temp->box->box_fd);
+        tfs_unlink(temp->box->box_name);
         free(temp->box);
         free(temp);
         break;
@@ -104,17 +106,32 @@ Message_Box *find_message_box(const char *box_name) {
   return NULL;
 }
 
-void send_list_boxes_so_que_la_do_outro_ficheiro(int pipe_fd) {
+void send_list_boxes_from_other_file(int pipe_fd) {
   Box_Node *ptr = box_list;
 
   while (ptr != NULL) {
     Message_Box *box = ptr->box;
-    fprintf(stdout, "%s %zu %zu %zu\n", box->box_name + 1, box->box_size,
-            box->n_publishers, box->n_subscribers);
     if (write(pipe_fd, box, sizeof(Message_Box)) < 0) {
-      perror("Error while writing in manager Fifo");
-      exit(EXIT_FAILURE);
+      fprintf(stderr, "Error while writing in manager Fifo");
+      return;
     }
     ptr = ptr->next;
+  }
+}
+
+void destroy_all_boxes() {
+  if (box_list == NULL) {
+    return;
+  } else {
+    Box_Node *ptr;
+    while (box_list != NULL) {
+      ptr = box_list;
+      box_list = box_list->next;
+      pthread_cond_destroy(&ptr->box->box_cond_var);
+      tfs_unlink(ptr->box->box_name);
+      tfs_close(ptr->box->box_fd);
+      free(ptr->box);
+      free(ptr);
+    }
   }
 }

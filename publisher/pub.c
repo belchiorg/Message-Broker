@@ -49,8 +49,8 @@ int main(int argc, char **argv) {
 
   fd = open(pipe_name, O_WRONLY | O_APPEND);
   if (fd < 0) {
-    perror("Error while opening fifo at publisher");
-    exit(EXIT_FAILURE);
+    fprintf(stderr, "Error while opening fifo at publisher");
+    raise(SIGTERM);
   }
 
   registry = (Registry_Protocol *)malloc(sizeof(Registry_Protocol));
@@ -60,15 +60,16 @@ int main(int argc, char **argv) {
   strcat(registry->box_name, "/");
   strncat(registry->box_name, boxName, 31);
 
-  if (write(fd, registry, sizeof(Registry_Protocol)) < 0) {
+  if (mkfifo(register_pipe_name, 0777) < 0) {
     free(registry);
-    perror("Error while writing in fifo");
-    exit(EXIT_FAILURE);
+    fprintf(stderr, "Error while creating fifo");
+    raise(SIGTERM);
   }
 
-  if (mkfifo(register_pipe_name, 0777) < 0) {
-    perror("Error while creating fifo");
-    exit(EXIT_FAILURE);
+  if (write(fd, registry, sizeof(Registry_Protocol)) < 0) {
+    free(registry);
+    fprintf(stderr, "Error while writing in fifo");
+    raise(SIGTERM);
   }
 
   free(registry);
@@ -78,18 +79,16 @@ int main(int argc, char **argv) {
 
   session = open(register_pipe_name, O_WRONLY);
   if (session < 0) {
-    perror("Couldn't open session fifo");
-    exit(EXIT_FAILURE);
+    fprintf(stderr, "Couldn't open session fifo");
+    raise(SIGTERM);
   }
 
-  ssize_t n = 0;
   ssize_t t = 0;
 
   message = (Message_Protocol *)malloc(sizeof(Message_Protocol));
   message->code = 9;
   while (1) {
     memset(message->message, 0, 1024);
-    t = 0;
 
     if (fgets(message->message, 1024, stdin) == NULL) break;
 
@@ -100,12 +99,10 @@ int main(int argc, char **argv) {
     t = (ssize_t)strlen(message->message);
     message->message[t - 1] = '\0';  // removes '\n'
 
-    n += t;
-
     if (write(session, message, sizeof(Message_Protocol)) < 0) {
       free(message);
-      perror("Error while writing from stdin");
-      exit(EXIT_FAILURE);
+      fprintf(stderr, "Error while writing from stdin");
+      raise(SIGTERM);
     }
   }
 

@@ -16,7 +16,7 @@ Registry_Protocol *registry = NULL;
 
 Message_Protocol *message = NULL;
 
-void catch_CTRLC(int sig) {
+void sig_handler(int sig) {
   (void)sig;
   if (message != NULL) {
     free(message);
@@ -27,14 +27,17 @@ void catch_CTRLC(int sig) {
   unlink(register_pipe_name);
   close(fd);
   close(session);
-  fprintf(stdout, "%d\n", messages_n);
   exit(EXIT_SUCCESS);
 }
 
 int main(int argc, char **argv) {
-  if (signal(SIGINT, catch_CTRLC) == SIG_ERR) {
+  if (signal(SIGINT, sig_handler) == SIG_ERR) {
   }
-  if (signal(SIGQUIT, catch_CTRLC) == SIG_ERR) {
+  if (signal(SIGQUIT, sig_handler) == SIG_ERR) {
+  }
+  if (signal(SIGPIPE, sig_handler) == SIG_ERR) {
+  }
+  if (signal(SIGTERM, sig_handler) == SIG_ERR) {
   }
 
   if (argc != 4) {
@@ -48,13 +51,13 @@ int main(int argc, char **argv) {
   fd = open(pipe_name, O_WRONLY | O_APPEND);
 
   if (fd < 0) {
-    perror("Error while opening fifo at publisher");
-    exit(EXIT_FAILURE);
+    fprintf(stderr, "Error while opening fifo at publisher");
+    raise(SIGTERM);
   }
 
   if (mkfifo(register_pipe_name, 0640) < 0) {
-    perror("Error while creating fifo");
-    exit(EXIT_FAILURE);
+    fprintf(stderr, "Error while opening fifo at publisher");
+    raise(SIGTERM);
   }
 
   registry = (Registry_Protocol *)malloc(sizeof(Registry_Protocol));
@@ -66,8 +69,8 @@ int main(int argc, char **argv) {
 
   if (write(fd, registry, sizeof(Registry_Protocol)) < 0) {
     close(fd);
-    perror("Error while writing in fifo");
-    exit(EXIT_FAILURE);
+    fprintf(stderr, "Error while writing in fifo");
+    raise(SIGTERM);
   }
 
   free(registry);
@@ -76,8 +79,8 @@ int main(int argc, char **argv) {
   close(fd);
 
   if ((session = open(register_pipe_name, O_RDONLY)) < 0) {
-    perror("Couldn't open session fifo");
-    exit(EXIT_FAILURE);
+    fprintf(stderr, "Couldn't open session fifo");
+    raise(SIGTERM);
   }
 
   message = (Message_Protocol *)malloc(sizeof(Message_Protocol));

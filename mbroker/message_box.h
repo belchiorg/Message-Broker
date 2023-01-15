@@ -31,6 +31,8 @@ Message_Box *find_message_box(const char *box_name);
 
 __uint8_t check_if_empty_list();
 
-void send_list_boxes_so_que_la_do_outro_ficheiro(int pipe_fd);
+void send_list_boxes_from_other_file(int pipe_fd);
+
+void destroy_all_boxes();
 
 #endif

@@ -13,22 +13,20 @@
 #include "message_box.h"
 #include "protocol.h"
 
-size_t maxSessions_var = 0;
+size_t max_sessions_var = 0;
 pc_queue_t queue;
 int fd;
-const char *pipeName;
-pthread_t *workerThreadsPtr;
+const char *pipe_name;
+pthread_t *worker_threadsPtr;
 
-void catch_CTRLC(int sig) {
-  (void)sig;
+void sig_handler(int sig) {
+  unlink(pipe_name);
 
-  unlink(pipeName);
-
-  for (int i = 0; i < maxSessions_var; i++) {
-    pthread_join(workerThreadsPtr[i], NULL);
+  for (int i = 0; i < max_sessions_var; i++) {
+    pthread_join(worker_threadsPtr[i], NULL);
   }
 
-  kill(0, SIGINT);
+  destroy_all_boxes();
 
   pcq_destroy(&queue);
 
@@ -36,12 +34,14 @@ void catch_CTRLC(int sig) {
 
   close(fd);
 
+  if (sig == SIGTERM) {
+    exit(EXIT_FAILURE);
+  }
   exit(EXIT_SUCCESS);
 }
 
-void *workerThreadsFunc() {
+void *worker_threads_func() {
   while (1) {
-    printf("%lu\n", queue.pcq_current_size);
     Registry_Protocol *registry = pcq_dequeue(&queue);
     switch (registry->code) {
       case 1:
@@ -74,45 +74,47 @@ void *workerThreadsFunc() {
 int main(int argc, char **argv) {
   // expected argv:
   // 0 - nome do programa
-  // 1 - pipename
+  // 1 - pipe_name
   // 2 - max sessions
 
-  if (signal(SIGINT, catch_CTRLC) == SIG_ERR) {
+  if (signal(SIGINT, sig_handler) == SIG_ERR) {
   }
-  if (signal(SIGQUIT, catch_CTRLC) == SIG_ERR) {
+  if (signal(SIGQUIT, sig_handler) == SIG_ERR) {
   }
-  if (signal(SIGSEGV, catch_CTRLC) == SIG_ERR) {
+  if (signal(SIGTERM, sig_handler) == SIG_ERR) {
+  }
+  if (signal(SIGPIPE, SIG_IGN) == SIG_ERR) {
   }
 
   if (argc != 3) {
-    fprintf(stderr, "usage: mbroker <pipeName> <maxSessions>\n");
+    fprintf(stderr, "usage: mbroker <pipe_name> <max_sessions>\n");
     exit(EXIT_FAILURE);
   }
 
-  pipeName = argv[1];
-  const size_t maxSessions = (size_t)atoi(argv[2]);
+  pipe_name = argv[1];
+  const size_t max_sessions = (size_t)atoi(argv[2]);
 
-  maxSessions_var = maxSessions;
+  max_sessions_var = max_sessions;
 
-  pcq_create(&queue, (size_t)maxSessions);
+  pcq_create(&queue, (size_t)max_sessions);
 
   tfs_init(NULL);
 
-  pthread_t workerThreads[maxSessions];
-  workerThreadsPtr = workerThreads;
-  for (int i = 0; i < maxSessions; i++) {
-    pthread_create(&workerThreads[i], NULL, &workerThreadsFunc, NULL);
+  pthread_t worker_threads[max_sessions];
+  worker_threadsPtr = worker_threads;
+  for (int i = 0; i < max_sessions; i++) {
+    pthread_create(&worker_threads[i], NULL, &worker_threads_func, NULL);
   }
 
-  if (mkfifo(pipeName, 0640) < 0) {
-    tfs_destroy();
-    exit(EXIT_FAILURE);
+  if (mkfifo(pipe_name, 0640) < 0) {
+    fprintf(stderr, "Error while creating server fifo");
+    raise(SIGTERM);
   }
 
-  fd = open(pipeName, TFS_O_TRUNC);
+  fd = open(pipe_name, TFS_O_TRUNC);
   if (fd < 0) {
-    tfs_destroy();
-    exit(EXIT_FAILURE);
+    fprintf(stderr, "Error while opening server fifo");
+    raise(SIGTERM);
   }
 
   Registry_Protocol *registry;
@@ -123,12 +125,6 @@ int main(int argc, char **argv) {
       pcq_enqueue(&queue, registry);
     }
   }
-
-  pcq_destroy(&queue);
-
-  tfs_destroy();
-
-  close(fd);
 
   return EXIT_FAILURE;
 }

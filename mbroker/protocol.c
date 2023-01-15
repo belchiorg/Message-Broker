@@ -16,25 +16,27 @@
 
 int register_pub(const char *pipe_name, char *box_name) {
   Message_Box *box = find_message_box(box_name);
-  if ((box == NULL) || box->n_publishers > 0) {
-    exit(EXIT_FAILURE);
+  if ((box == NULL)) {
+    fprintf(stderr, "Err: message box does not exist");
+    return -1;
   }
   if (box->n_publishers > 0) {
-    puts("bazei");
+    fprintf(stderr, "Err: message box already has a publisher connected");
     return -1;
   }
 
-  int boxFd = tfs_open(box_name, TFS_O_APPEND);
-  if ((boxFd) < 0) {
+  int box_fd = tfs_open(box_name, TFS_O_APPEND);
+  if ((box_fd) < 0) {
+    fprintf(stderr, "Err: couldn't open message box");
     return -1;
   }
   box->n_publishers++;
 
-  int sessionFd;
-  if ((sessionFd = open(pipe_name, O_RDONLY)) < 0) {
+  int session_fd;
+  if ((session_fd = open(pipe_name, O_RDONLY)) < 0) {
     box->n_publishers--;
-    perror("Error while opening fifo");
-    exit(EXIT_FAILURE);
+    fprintf(stderr, "Err: couldn't open session fifo");
+    return -1;
   }
 
   Message_Protocol *message =
@@ -46,7 +48,7 @@ int register_pub(const char *pipe_name, char *box_name) {
   memset(message->message, 0, 1024);
 
   // Cond Var para avisar que chegou novas cenas
-  while ((read(sessionFd, message, sizeof(Message_Protocol))) > 0) {
+  while ((read(session_fd, message, sizeof(Message_Protocol))) > 0) {
     mutex_lock(&box->n_messages_lock);
     box->n_messages++;
     mutex_unlock(&box->n_messages_lock);
@@ -54,12 +56,9 @@ int register_pub(const char *pipe_name, char *box_name) {
 
     //* Reads what is in the fifo
 
-    if (write(1, message->message, sizeof(message->message))) {
-    }
-
     len = strlen(message->message) + 1;
 
-    n = tfs_write(boxFd, message->message, len);
+    n = tfs_write(box_fd, message->message, len);
 
     if (n >= 0) {
       box->box_size += (size_t)n;
@@ -70,28 +69,34 @@ int register_pub(const char *pipe_name, char *box_name) {
 
   box->n_publishers--;
 
-  close(sessionFd);
+  close(session_fd);
 
   free(message);
 
-  tfs_close(boxFd);
+  tfs_close(box_fd);
 
   return 0;
 }
 
 int register_sub(const char *pipe_name, const char *box_name) {
-  int boxFd = tfs_open(box_name, 0);
-  if (boxFd < 0) {
+  int box_fd = tfs_open(box_name, 0);
+  if (box_fd < 0) {
+    fprintf(stderr, "Err: couldn't open message box");
     return -1;
   }
 
-  int sessionFd;
-  if ((sessionFd = open(pipe_name, O_WRONLY)) < 0) {
-    perror("Error while opening fifo");
-    exit(EXIT_FAILURE);
+  int session_fd;
+  if ((session_fd = open(pipe_name, O_WRONLY)) < 0) {
+    fprintf(stderr, "Err: couldn't open session fifo");
+    return -1;
   }
 
   Message_Box *box = find_message_box(box_name);
+
+  if (box == NULL) {
+    fprintf(stderr, "Err: couldn't open message box");
+    return -1;
+  }
 
   mutex_lock(&box->n_messages_lock);
   int n_messages = box->n_messages++;
@@ -105,13 +110,8 @@ int register_sub(const char *pipe_name, const char *box_name) {
   message->code = 10;
 
   memset(message->message, 0, 1024);
-  if (tfs_read(boxFd, message->message, 1024) > 0) {
-    if (write(sessionFd, message, sizeof(Message_Protocol)) < 0) {
-      //* Writes it to fifo
-      free(message);
-      perror("Error while writing in fifo");
-      exit(EXIT_FAILURE);
-    }
+  if (tfs_read(box_fd, message->message, 1024) > 0) {
+    write(session_fd, message, sizeof(Message_Protocol));
 
     memset(message->message, 0, 1024);
   }
@@ -124,29 +124,26 @@ int register_sub(const char *pipe_name, const char *box_name) {
     }
     mutex_unlock(&box->n_messages_lock);
 
-    n = tfs_read(boxFd, message->message, 1024);
+    n = tfs_read(box_fd, message->message, 1024);
     n_messages++;
     if (n == 0) continue;
-    if (write(sessionFd, message, sizeof(Message_Protocol)) < 0) {
-      //* Writes it to fifo
-      free(message);
-      perror("Error while writing in fifo");
-      exit(EXIT_FAILURE);
+    if (write(session_fd, message, sizeof(Message_Protocol)) < 0) {
+      //* If write is < 0, than the pipe is now closed
+      break;
     }
     memset(message->message, 0, 1024);
   }
 
   free(message);
 
-  tfs_close(boxFd);
-  close(sessionFd);
+  tfs_close(box_fd);
+  close(session_fd);
 
   return 0;
 }
 
 int create_box(const char *pipe_name, const char *box_name) {
   Box_Protocol *response = (Box_Protocol *)malloc(sizeof(Box_Protocol));
-
   response->code = 4;
 
   if (find_message_box(box_name) != NULL) {
@@ -165,19 +162,23 @@ int create_box(const char *pipe_name, const char *box_name) {
   }
 
   int fd = open(pipe_name, O_WRONLY);
+  if (fd < 0) {
+    fprintf(stderr, "Err: couldn't open session fifo");
+    return -1;
+  }
 
   __uint8_t code = 4;
 
   if (write(fd, &code, 1) < 0) {
     free(response);
-    perror("Error while writing in manager fifo");
-    exit(EXIT_FAILURE);
+    fprintf(stderr, "Error while writing in manager fifo");
+    return -1;
   }
 
   if (write(fd, response, sizeof(Box_Protocol)) < 0) {
     free(response);
-    perror("Error while writing in manager fifo");
-    exit(EXIT_FAILURE);
+    fprintf(stderr, "Error while writing in manager fifo");
+    return -1;
   }
 
   close(fd);
@@ -199,11 +200,15 @@ int destroy_box(const char *pipe_name, const char *box_name) {
   }
 
   int file = open(pipe_name, O_WRONLY);
+  if (file < 0) {
+    fprintf(stderr, "Err: couldn't open session fifo");
+    return -1;
+  }
 
   if (write(file, response, sizeof(Box_Protocol)) < -1) {
     free(response);
-    perror("Error while writting in manager fifo");
-    exit(EXIT_FAILURE);
+    fprintf(stderr, "Error while writing in manager fifo");
+    return -1;
   }
 
   remove_box(box_name);
@@ -218,11 +223,11 @@ int destroy_box(const char *pipe_name, const char *box_name) {
 int send_list_boxes(const char *pipe_name) {
   int pipe_fd = open(pipe_name, O_WRONLY);
   if (pipe_fd < 0) {
-    perror("Error while opening Manager Fifo in list_boxes");
-    exit(EXIT_FAILURE);
+    fprintf(stderr, "Error while opening Manager Fifo in list_boxes");
+    return -1;
   }
 
-  send_list_boxes_so_que_la_do_outro_ficheiro(pipe_fd);
+  send_list_boxes_from_other_file(pipe_fd);
 
   close(pipe_fd);
 
