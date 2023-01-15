@@ -23,7 +23,6 @@
 void thread_sig_handler(int sig) {
     (void)sig;
 
-    write(1, "Exiting Thread", 15);
     exit(EXIT_SUCCESS);
 }
 
@@ -161,7 +160,10 @@ int register_sub(const char *pipe_name, const char *prot_box_name) {
     //* Reads if there are any messages in the message box
     if (tfs_read(prot_box_fd, prot_message->message, 1024) > 0) {
         // If there were received any messages, send them to client session fifo
-        write(prot_session_fd, prot_message, sizeof(Message_Protocol));
+        if (write(prot_session_fd, prot_message, sizeof(Message_Protocol)) <
+            0) {
+            fprintf(stderr, "Err: couldn't write to fifo");
+        }
 
         // Resets the memory for new messages
         memset(prot_message->message, 0, 1024);
