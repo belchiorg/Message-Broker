@@ -60,8 +60,10 @@ int register_pub(const char *pipe_name, char *box_name) {
 
     n = tfs_write(box_fd, message->message, len);
 
-    if (n >= 0) {
+    if (n > 0) {
       box->box_size += (size_t)n;
+    } else {
+      break;
     }
 
     memset(message->message, 0, sizeof(message->message));
@@ -92,6 +94,7 @@ int register_sub(const char *pipe_name, const char *box_name) {
   }
 
   Message_Box *box = find_message_box(box_name);
+  ssize_t n;
 
   if (box == NULL) {
     fprintf(stderr, "Err: couldn't open message box");
@@ -116,7 +119,6 @@ int register_sub(const char *pipe_name, const char *box_name) {
     memset(message->message, 0, 1024);
   }
 
-  ssize_t n;
   while (1) {
     mutex_lock(&box->n_messages_lock);
     while (n_messages == box->n_messages) {
@@ -125,9 +127,12 @@ int register_sub(const char *pipe_name, const char *box_name) {
     mutex_unlock(&box->n_messages_lock);
 
     n = tfs_read(box_fd, message->message, 1024);
+    if (n < 0) {
+      break;
+    }
     n_messages++;
     if (n == 0) continue;
-    if (write(session_fd, message, sizeof(Message_Protocol)) < 0) {
+    if (write(session_fd, message, sizeof(Message_Protocol)) <= 0) {
       //* If write is < 0, than the pipe is now closed
       break;
     }

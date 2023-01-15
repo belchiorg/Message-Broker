@@ -102,11 +102,13 @@ int main(int argc, char **argv) {
     memset(message->message, 0, sizeof(Message_Protocol));
   }
 
-  while ((n = read(session, message, sizeof(Message_Protocol))) >= 0) {
+  while ((n = read(session, message, sizeof(Message_Protocol))) > 0) {
     fprintf(stdout, "%s\n", message->message);
     messages_n++;
     memset(message->message, 0, sizeof(Message_Protocol));
   }
+
+  raise(SIGTERM);
 
   return 0;
 }

@@ -62,7 +62,6 @@ int remove_box(const char *box_name) {
     box_list = box_list->next;
     pthread_cond_destroy(&ptr->box->box_cond_var);
     tfs_close(ptr->box->box_fd);
-    tfs_unlink(ptr->box->box_name);
     free(ptr->box);
     free(ptr);
     if (box_list == NULL) is_empty_list = 1;
@@ -76,7 +75,6 @@ int remove_box(const char *box_name) {
         current->next = next;
         pthread_cond_destroy(&temp->box->box_cond_var);
         tfs_close(temp->box->box_fd);
-        tfs_unlink(temp->box->box_name);
         free(temp->box);
         free(temp);
         break;
