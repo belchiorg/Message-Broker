@@ -1,6 +1,7 @@
 #include <fcntl.h>
 #include <semaphore.h>
 #include <signal.h>
+#include <stdatomic.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -19,27 +20,27 @@ int fd;
 const char *pipe_name;
 pthread_t *worker_threadsPtr;
 
+/**
+ * @brief Signal handler that unlinks the pipe, destroys all the box messages
+ * and closes TFS. Kills all the threads in use too.
+ *
+ * @param sig signal received
+ */
 void sig_handler(int sig) {
+  (void)sig;
+
   unlink(pipe_name);
-
-  for (int i = 0; i < max_sessions_var; i++) {
-    pthread_join(worker_threadsPtr[i], NULL);
-  }
-
-  destroy_all_boxes();
-
-  pcq_destroy(&queue);
-
   tfs_destroy();
-
+  destroy_all_boxes();
+  pcq_destroy(&queue);
   close(fd);
-
-  if (sig == SIGTERM) {
-    exit(EXIT_FAILURE);
-  }
   exit(EXIT_SUCCESS);
 }
 
+/**
+ * @brief Check which type of registry the client want
+ * to use.
+ */
 void *worker_threads_func() {
   while (1) {
     Registry_Protocol *registry = pcq_dequeue(&queue);
@@ -61,7 +62,7 @@ void *worker_threads_func() {
         break;
 
       case 7:
-        send_list_boxes(registry->register_pipe_name);
+        send_list_boxes_protocol(registry->register_pipe_name);
         break;
 
       default:
@@ -71,12 +72,20 @@ void *worker_threads_func() {
   }
 }
 
+/**
+ * @param argc max arguments that mbroker input can receive
+ * @param argv contains the pipe name and the number of max sessions insert by
+ * the user
+ */
+
 int main(int argc, char **argv) {
   if (signal(SIGINT, sig_handler) == SIG_ERR) {
   }
   if (signal(SIGQUIT, sig_handler) == SIG_ERR) {
   }
   if (signal(SIGTERM, sig_handler) == SIG_ERR) {
+  }
+  if (signal(SIGUSR1, thread_sig_handler) == SIG_ERR) {
   }
   if (signal(SIGPIPE, SIG_IGN) == SIG_ERR) {
     // SIGPIPE should be handled locally

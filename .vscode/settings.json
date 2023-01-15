@@ -18,6 +18,8 @@
         "sstream": "c",
         "fcntl.h": "c",
         "*.tcc": "c",
-        "wait.h": "c"
+        "wait.h": "c",
+        "types.h": "c",
+        "random": "c"
     }
 }

@@ -5,6 +5,9 @@
 #include "../mbroker/protocol.h"
 #include "../utils/logging.h"
 
+/**
+ * @brief Show the right way to insert the manager command.
+ */
 static void print_usage() {
   fprintf(stderr,
           "usage: \n"
@@ -20,6 +23,12 @@ Box_Protocol *response = NULL;
 int session_fd = -1;
 int server_fd = -1;
 
+/**
+ * @brief Signal handler that unlinks the pipe, destroys all the box messages
+ * and closes TFS.
+ *
+ * @param sig signal received
+ */
 void sig_handler(int sig) {
   (void)sig;
   if (response != NULL) {
@@ -39,6 +48,12 @@ void sig_handler(int sig) {
   exit(EXIT_SUCCESS);
 }
 
+/**
+ * @brief Signal handler that unlinks the pipe, destroys all the box messages
+ * and closes TFS. Kills all the threads in use too.
+ *
+ * @param sig signal received
+ */
 void list_boxes() {
   session_fd = open(reg_pipe, O_RDONLY);
   if (session_fd < 0) {

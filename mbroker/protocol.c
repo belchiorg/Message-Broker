@@ -8,233 +8,314 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#include "../fs/operations.h"
-#include "../producer-consumer/producer-consumer.h"
-#include "../utils/logging.h"
-#include "../utils/utils.h"
+#include "logging.h"
 #include "message_box.h"
+#include "operations.h"
+#include "producer-consumer.h"
+#include "utils.h"
 
-int register_pub(const char *pipe_name, char *box_name) {
-  Message_Box *box = find_message_box(box_name);
-  if ((box == NULL)) {
-    fprintf(stderr, "Err: message box does not exist");
+/**
+ * @brief Free any of the messages sent by user, any box of messages or any
+ * request to create boxes and closes the file.
+ *
+ * @param sig signal received
+ */
+void thread_sig_handler(int sig) {
+  (void)sig;
+
+  write(1, "Exiting Thread", 15);
+  exit(EXIT_SUCCESS);
+}
+
+/**
+ * @brief Create a publisher that search by the right message in the box, open
+ * the file and allocate memory for the pub. After that, read and keep all the
+ * messages to write in the box while still have message sent.
+ *
+ * @param pipe_name client session pipe
+ * @param prot_box_name message box in use
+ */
+int register_pub(const char *pipe_name, char *prot_box_name) {
+  // Tries to get the message box
+  Message_Box *prot_box = find_message_box(prot_box_name);
+  if ((prot_box == NULL)) {
+    fprintf(stderr, "Err: message prot_box does not exist");
     return -1;
   }
-  if (box->n_publishers > 0) {
-    fprintf(stderr, "Err: message box already has a publisher connected");
+
+  // If there is already a publisher connected to the message box, returns and
+  // frees the registry
+  if (prot_box->n_publishers > 0) {
+    fprintf(stderr, "Err: message prot_box already has a publisher connected");
     return -1;
   }
 
-  int box_fd = tfs_open(box_name, TFS_O_APPEND);
-  if ((box_fd) < 0) {
-    fprintf(stderr, "Err: couldn't open message box");
+  // Opens the message box
+  int prot_box_fd = tfs_open(prot_box_name, TFS_O_APPEND);
+  if ((prot_box_fd) < 0) {
+    fprintf(stderr, "Err: couldn't open message prot_box");
     return -1;
   }
-  box->n_publishers++;
+  prot_box->n_publishers++;
 
-  int session_fd;
-  if ((session_fd = open(pipe_name, O_RDONLY)) < 0) {
-    box->n_publishers--;
+  // Opens the client session pipe
+  int prot_session_fd;
+  if ((prot_session_fd = open(pipe_name, O_RDONLY)) < 0) {
+    prot_box->n_publishers--;
     fprintf(stderr, "Err: couldn't open session fifo");
     return -1;
   }
 
-  Message_Protocol *message =
+  // Allocs memory for the message
+  Message_Protocol *prot_message =
       (Message_Protocol *)malloc(sizeof(Message_Protocol));
 
   ssize_t n;
   size_t len;
 
-  memset(message->message, 0, 1024);
+  memset(prot_message->message, 0, 1024);
 
-  // Cond Var para avisar que chegou novas cenas
-  while ((read(session_fd, message, sizeof(Message_Protocol))) > 0) {
-    mutex_lock(&box->n_messages_lock);
-    box->n_messages++;
-    mutex_unlock(&box->n_messages_lock);
-    pthread_cond_broadcast(&box->box_cond_var);
+  while ((read(prot_session_fd, prot_message, sizeof(Message_Protocol))) > 0) {
+    //* Reads new message from client session fifo
 
-    //* Reads what is in the fifo
+    mutex_lock(&prot_box->n_messages_lock);    // locks
+    prot_box->n_messages++;                    // changes var
+    mutex_unlock(&prot_box->n_messages_lock);  // unlocks
 
-    len = strlen(message->message) + 1;
+    //* Signals that a new message arrived
+    pthread_cond_broadcast(&prot_box->box_cond_var);
 
-    n = tfs_write(box_fd, message->message, len);
+    len = strlen(prot_message->message) + 1;  // Includes final '\0'
 
-    if (n > 0) {
-      box->box_size += (size_t)n;
+    // Writes the received message to the message box
+    if ((n = tfs_write(prot_box_fd, prot_message->message, len)) > 0) {
+      // Increments box size
+      prot_box->box_size += (size_t)n;
     } else {
+      // leaves loop -> publisher left
       break;
     }
 
-    memset(message->message, 0, sizeof(message->message));
+    memset(prot_message->message, 0, sizeof(prot_message->message));
   }
 
-  box->n_publishers--;
+  prot_box->n_publishers--;
 
-  close(session_fd);
+  close(prot_session_fd);
 
-  free(message);
+  free(prot_message);
 
-  tfs_close(box_fd);
+  tfs_close(prot_box_fd);
 
   return 0;
 }
 
-int register_sub(const char *pipe_name, const char *box_name) {
-  int box_fd = tfs_open(box_name, 0);
-  if (box_fd < 0) {
-    fprintf(stderr, "Err: couldn't open message box");
+/**
+ * @brief Create a subscriber that search by the right message in the box, open
+ * the file and allocate memory and send the messages to this sub. After that,
+ * while the sub keep continue to receive messages, it write them.
+ *
+ * @param pipe_name users pipe
+ * @param prot_box_name message box in use
+ */
+int register_sub(const char *pipe_name, const char *prot_box_name) {
+  int prot_box_fd = tfs_open(prot_box_name, 0);
+  if (prot_box_fd < 0) {
+    fprintf(stderr, "Err: couldn't open message prot_box");
     return -1;
   }
 
-  int session_fd;
-  if ((session_fd = open(pipe_name, O_WRONLY)) < 0) {
+  int prot_session_fd;
+  if ((prot_session_fd = open(pipe_name, O_WRONLY)) < 0) {
     fprintf(stderr, "Err: couldn't open session fifo");
     return -1;
   }
 
-  Message_Box *box = find_message_box(box_name);
+  // Tries to get the message box
+  Message_Box *prot_box = find_message_box(prot_box_name);
   ssize_t n;
 
-  if (box == NULL) {
-    fprintf(stderr, "Err: couldn't open message box");
+  if (prot_box == NULL) {
+    fprintf(stderr, "Err: couldn't open message prot_box");
     return -1;
   }
 
-  mutex_lock(&box->n_messages_lock);
-  int n_messages = box->n_messages++;
-  mutex_unlock(&box->n_messages_lock);
+  // Gets the current number of messages of the box
+  mutex_lock(&prot_box->n_messages_lock);
+  int n_messages = prot_box->n_messages;
+  mutex_unlock(&prot_box->n_messages_lock);
 
-  box->n_subscribers++;
+  // Increments box's number of subscribers
+  prot_box->n_subscribers++;
 
-  Message_Protocol *message =
+  // Allocs memory to hold messages
+  Message_Protocol *prot_message =
       (Message_Protocol *)malloc(sizeof(Message_Protocol));
 
-  message->code = 10;
+  prot_message->code = 10;
 
-  memset(message->message, 0, 1024);
-  if (tfs_read(box_fd, message->message, 1024) > 0) {
-    write(session_fd, message, sizeof(Message_Protocol));
+  memset(prot_message->message, 0, 1024);
 
-    memset(message->message, 0, 1024);
+  //* Reads if there are any messages in the message box
+  if (tfs_read(prot_box_fd, prot_message->message, 1024) > 0) {
+    // If there were received any messages, send them to client session fifo
+    write(prot_session_fd, prot_message, sizeof(Message_Protocol));
+
+    // Resets the memory for new messages
+    memset(prot_message->message, 0, 1024);
   }
 
   while (1) {
-    mutex_lock(&box->n_messages_lock);
-    while (n_messages == box->n_messages) {
-      pthread_cond_wait(&box->box_cond_var, &box->n_messages_lock);
+    // Prevents active waiting
+    mutex_lock(&prot_box->n_messages_lock);
+    while (n_messages == prot_box->n_messages) {
+      // Cycle to wait until cond var changes. If number of read messages is
+      // equal to the number of messages in the box, keeps waiting.
+      pthread_cond_wait(&prot_box->box_cond_var, &prot_box->n_messages_lock);
     }
-    mutex_unlock(&box->n_messages_lock);
+    mutex_unlock(&prot_box->n_messages_lock);
 
-    n = tfs_read(box_fd, message->message, 1024);
+    //* Reads a new message from the message box
+    n = tfs_read(prot_box_fd, prot_message->message, 1024);
     if (n < 0) {
+      // This occurs when the message box closes
+      // TODO: Make this close when manager removes box
+      // ? Change the tfs_unlink function to close the box?
       break;
     }
     n_messages++;
     if (n == 0) continue;
-    if (write(session_fd, message, sizeof(Message_Protocol)) <= 0) {
+    if (write(prot_session_fd, prot_message, sizeof(Message_Protocol)) <= 0) {
       //* If write is < 0, than the pipe is now closed
       break;
     }
-    memset(message->message, 0, 1024);
+
+    // Resets the memory for new messages
+    memset(prot_message->message, 0, 1024);
   }
 
-  free(message);
+  free(prot_message);
 
-  tfs_close(box_fd);
-  close(session_fd);
+  tfs_close(prot_box_fd);
+  close(prot_session_fd);
 
   return 0;
 }
 
-int create_box(const char *pipe_name, const char *box_name) {
-  Box_Protocol *response = (Box_Protocol *)malloc(sizeof(Box_Protocol));
-  response->code = 4;
+/**
+ * @brief Create a box message where we allocate space for the response and if
+ * the message box doesn't exist.
+ *
+ * @param pipe_name users pipe
+ * @param prot_box_name message box in use
+ */
+int create_box(const char *pipe_name, const char *prot_box_name) {
+  // Allocs memory for the response
+  Box_Protocol *prot_response = (Box_Protocol *)malloc(sizeof(Box_Protocol));
+  prot_response->code = 4;
 
-  if (find_message_box(box_name) != NULL) {
-    response->response = -1;
-    strcpy(response->error_message, "Message box already exists");
+  // Checks if box exists
+  if (find_message_box(prot_box_name) != NULL) {
+    prot_response->response = -1;
+    strcpy(prot_response->error_message, "Message prot_box already exists");
   } else {
-    int box_fd;
-    if ((box_fd = tfs_open(box_name, TFS_O_CREAT)) < 0) {
-      response->response = -1;
-      strcpy(response->error_message, "Error while creating box");
+    int prot_box_fd;
+    // TFS
+    if ((prot_box_fd = tfs_open(prot_box_name, TFS_O_CREAT)) < 0) {
+      prot_response->response = -1;
+      strcpy(prot_response->error_message, "Error while creating prot_box");
     } else {
-      response->response = 0;
-      add_box(box_name, box_fd);
-      memset(response->error_message, 0, strlen(response->error_message));
+      prot_response->response = 0;
+      add_box(prot_box_name, prot_box_fd);
+      memset(prot_response->error_message, 0,
+             strlen(prot_response->error_message));
     }
   }
 
-  int fd = open(pipe_name, O_WRONLY);
-  if (fd < 0) {
+  //
+  int prot_session_fd;
+  prot_session_fd = open(pipe_name, O_WRONLY);
+  if (prot_session_fd < 0) {
     fprintf(stderr, "Err: couldn't open session fifo");
     return -1;
   }
 
   __uint8_t code = 4;
 
-  if (write(fd, &code, 1) < 0) {
-    free(response);
+  if (write(prot_session_fd, &code, 1) < 0) {
+    free(prot_response);
     fprintf(stderr, "Error while writing in manager fifo");
     return -1;
   }
 
-  if (write(fd, response, sizeof(Box_Protocol)) < 0) {
-    free(response);
+  if (write(prot_session_fd, prot_response, sizeof(Box_Protocol)) < 0) {
+    free(prot_response);
     fprintf(stderr, "Error while writing in manager fifo");
     return -1;
   }
 
-  close(fd);
-  free(response);
+  close(prot_session_fd);
+  free(prot_response);
   return 0;
 }
 
-int destroy_box(const char *pipe_name, const char *box_name) {
-  Box_Protocol *response = (Box_Protocol *)malloc(sizeof(Box_Protocol));
+/**
+ * @brief destroy a message box given.
+ *
+ * @param pipe_name users pipe
+ * @param prot_box_name message box in use
+ */
+int destroy_box(const char *pipe_name, const char *prot_box_name) {
+  Box_Protocol *prot_response = (Box_Protocol *)malloc(sizeof(Box_Protocol));
 
-  response->code = 6;
+  prot_response->code = 6;
 
-  if (tfs_unlink(box_name) == -1) {
-    response->response = -1;
-    strcpy(response->error_message, "Error while deleting box_name");
+  if (tfs_unlink(prot_box_name) == -1) {
+    prot_response->response = -1;
+    strcpy(prot_response->error_message, "Error while deleting prot_box_name");
   } else {
-    response->response = 0;
-    memset(response->error_message, 0, strlen(response->error_message));
+    prot_response->response = 0;
+    memset(prot_response->error_message, 0,
+           strlen(prot_response->error_message));
   }
 
-  int file = open(pipe_name, O_WRONLY);
-  if (file < 0) {
+  int prot_session_fd;
+  prot_session_fd = open(pipe_name, O_WRONLY);
+  if (prot_session_fd < 0) {
     fprintf(stderr, "Err: couldn't open session fifo");
     return -1;
   }
 
-  if (write(file, response, sizeof(Box_Protocol)) < -1) {
-    free(response);
+  if (write(prot_session_fd, prot_response, sizeof(Box_Protocol)) < -1) {
+    free(prot_response);
     fprintf(stderr, "Error while writing in manager fifo");
     return -1;
   }
 
-  remove_box(box_name);
+  remove_box(prot_box_name);
 
-  close(file);
+  close(prot_session_fd);
 
-  free(response);
+  free(prot_response);
 
   return 0;
 }
 
-int send_list_boxes(const char *pipe_name) {
-  int pipe_fd = open(pipe_name, O_WRONLY);
-  if (pipe_fd < 0) {
-    fprintf(stderr, "Error while opening Manager Fifo in list_boxes");
+/**
+ * @brief Send the box messages list.
+ *
+ * @param pipe_name users pipe
+ */
+int send_list_boxes_protocol(const char *pipe_name) {
+  int prot_session_fd = open(pipe_name, O_WRONLY);
+  if (prot_session_fd < 0) {
+    fprintf(stderr, "Error while opening Manager Fifo in list_prot_boxes");
     return -1;
   }
 
-  send_list_boxes_from_other_file(pipe_fd);
+  send_list_boxes(prot_session_fd);
 
-  close(pipe_fd);
+  close(prot_session_fd);
 
   return 0;
 }

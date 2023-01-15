@@ -1,0 +1,288 @@
+O segundo exercício do projeto pretende construir um sistema simples de publicação e subscrição de mensagens, que são armazenadas no sistema de ficheiros Tecnico\+FS. O sistema vai ter um processo servidor autónomo, ao qual diferentes processos clientes se podem ligar, para publicar ou receber mensagens numa dada caixa de armazenamento de mensagens.\hypertarget{md_README_autotoc_md1}{}\doxysection{Ponto de partida}\label{md_README_autotoc_md1}
+Para resolver o segundo exercício, os grupos devem usar como base a sua solução do 1º exercício ou \href{https://github.com/tecnico-so/projeto-so-2022-23/}{\texttt{ aceder ao novo código base}}, que estende a versão original do Tecnico\+FS das seguintes maneiras\+:
+
+
+\begin{DoxyItemize}
+\item As operações principais do Tecnico\+FS estão sincronizadas usando um único trinco ({\itshape mutex}) global. Embora menos paralela que a solução pretendida para o primeiro exercício, esta solução de sincronização é suficiente para implementar os novos requisitos;
+\item É implementado a operação {\ttfamily tfs\+\_\+unlink}, que permite remover ficheiros.
+\end{DoxyItemize}
+
+Adicionalmente, o código base inclui esqueletos para\+:
+
+
+\begin{DoxyEnumerate}
+\item O programa do servidor {\itshape mbroker} (na diretoria {\ttfamily mbroker});
+\item A implementação do cliente para publicação (na diretoria {\ttfamily publisher});
+\item A implementação do cliente para subscrição (na diretoria {\ttfamily subscriber});
+\item A implementação do cliente de gestão (directoria {\ttfamily manager}).
+\end{DoxyEnumerate}
+
+Em vez do novo código base, os grupos que tenham uma solução robusta no 1º exercício são encorajados a construírem a solução com base na sua versão, que à partida estará mais otimizada em termos de concorrência.\hypertarget{md_README_autotoc_md2}{}\doxysection{1. Arquitetura do sistema}\label{md_README_autotoc_md2}
+O sistema é formado pelo servidor ({\itshape mbroker}) e por vários publicadores ({\itshape publishers}), subscritores ({\itshape subscribers}) e gestores ({\itshape manager}).\hypertarget{md_README_autotoc_md3}{}\doxysubsection{Caixas de Mensagens}\label{md_README_autotoc_md3}
+Um conceito fundamental do sistema são as caixas de mensagens. Cada caixa pode ter um publicador e múltiplos subscritores. O {\itshape publisher} coloca mensagens na caixa, e os vários {\itshape subscribers} lêem as mensagens da caixa. Cada caixa é suportada no servidor por um ficheiro no TFS. Por esta razão, o ciclo de vida de uma caixa é distinto do ciclo de vida do {\itshape publisher} que lá publica mensagens. Aliás, é possível que uma caixa venha a ter vários {\itshape publishers} ao longo da sua existência, embora apenas um de cada vez.
+
+As operações de criação e remoção de caixa são geridas pelo {\itshape manager}. Adicionalmente, o {\itshape manager} permite listar as caixas existentes na {\itshape mbroker}.\hypertarget{md_README_autotoc_md4}{}\doxysubsection{1.\+1. Servidor}\label{md_README_autotoc_md4}
+O servidor incorpora o Tecnico\+FS e é um processo autónomo, inicializado da seguinte forma\+:
+
+
+\begin{DoxyCode}{0}
+\DoxyCodeLine{\$\ mbroker\ <pipename>\ <max\_sessions>}
+
+\end{DoxyCode}
+
+
+O servidor cria um {\itshape named pipe} cujo nome ({\itshape pipename}) é o indicado no argumento acima. É através deste {\itshape named pipe}, criado pelo servidor, que os processos cliente se poderão ligar para se registarem.
+
+Qualquer processo cliente pode ligar-\/se ao {\itshape named pipe} do servidor e enviar-\/lhe uma mensagem a solicitar o início de uma sessão. Uma {\bfseries{sessão}} consiste em ter um {\itshape named pipe} do cliente, onde o cliente envia as mensagens (se for um publicador) ou onde o cliente recebe mensagens (se for um subscritor). Um dado cliente apenas assume um dos dois papéis, ou seja, ou é exclusivamente publicador e só envia informação para o servidor, ou é exclusivamente subscritor (ou gestor) e só recebe informação.
+
+O {\itshape named pipe} da sessão deve ser criado previamente pelo cliente. Na mensagem de registo, o cliente envia o nome do {\itshape named pipe} a usar durante a sessão.
+
+Uma sessão mantém-\/se aberta até que aconteça uma das seguintes situações\+:
+
+
+\begin{DoxyEnumerate}
+\item Um cliente (publicador ou subscritor) feche o seu {\itshape named pipe}, sinalizando implicitamente o fim de sessão;
+\item A caixa é removida pelo gestor.
+\end{DoxyEnumerate}
+
+O servidor aceita um número máximo de sessões em simultâneo, definido pelo valor do argumento {\ttfamily max\+\_\+sessions}.
+
+Nas subsecções seguintes descrevemos o protocolo cliente-\/servidor em maior detalhe, i.\+e., o conteúdo das mensagens de pedido e resposta trocadas entre clientes e servidor.\hypertarget{md_README_autotoc_md5}{}\doxysubsubsection{1.\+1.\+1. Arquitectura do servidor}\label{md_README_autotoc_md5}
+O servidor deve ter uma {\itshape thread} para gerir o {\itshape named pipe} de registo e lançar {\ttfamily max\+\_\+sessions} threads para processar sessões. Quando chega um novo pedido de registo, este deve ser enviado para uma {\itshape thread} que se encontre disponível, que irá processá-\/lo durante o tempo necessário. Para gerir estes pedidos, evitando que as {\itshape threads} fiquem em espera ativa, a {\itshape main thread} e as {\itshape worker threads} cooperam utilizando uma {\bfseries{fila produtor-\/consumidor}}, segundo a interface disponibilizada no ficheiro {\ttfamily producer-\/consumer.\+h}. Desta forma, quando chega um novo pedido de registo, este é colocado na fila e assim que uma {\itshape thread} fique disponível, irá consumir e tratar esse pedido.
+
+A arquitetura do servidor está sumarizada na seguinte figura\+:
+
+
+
+
+\begin{DoxyItemize}
+\item O {\itshape mbroker} usa o TFS para armazenar as mensagens das caixas;
+\item A {\itshape main thread} recebe pedidos através do {\itshape register pipe} e coloca-\/os numa fila de produtor-\/consumidor;
+\item As {\itshape worker threads} executam os pedidos dos clientes, dedicando-\/se a atender um cliente de cada vez;
+\item Cooperam com a {\itshape main thread} através de uma fila produtor-\/consumidor, que evita espera ativa.
+\end{DoxyItemize}\hypertarget{md_README_autotoc_md6}{}\doxysubsection{1.\+2. $<$em$>$\+Publisher$<$/em$>$}\label{md_README_autotoc_md6}
+Um publicador é um processo lançado da seguinte forma\+:
+
+
+\begin{DoxyCode}{0}
+\DoxyCodeLine{pub\ <register\_pipe>\ <pipe\_name>\ <box\_name>}
+
+\end{DoxyCode}
+
+
+Assim que é lançado, o {\itshape publisher}, pede para iniciar uma sessão no servidor de {\itshape mbroker}, indicando a caixa de mensagens para a qual pretende escrever mensagens. Se a ligação for aceite (pode ser rejeitada caso já haja um {\itshape publisher} ligado à caixa, por exemplo) fica a receber mensagens do {\ttfamily stdin} e depois publica-\/as. Uma {\bfseries{mensagem}} corresponde a uma linha do {\ttfamily stdin}, sendo truncada a um dado valor máximo e delimitada por um {\ttfamily \textbackslash{}0}, como uma {\itshape string} de C. A mensagem não deve incluir um {\ttfamily \textbackslash{}n} final.
+
+Se o {\itshape publisher} receber um EOF ({\itshape End Of File}, por exemplo, com um Ctrl-\/D), deve encerrar a sessão fechando o {\itshape named pipe}.
+
+O nome do {\itshape named pipe} da sessão é escolhido automaticamente pelo {\itshape publisher}, de forma a garantir que não existem conflitos com outros clientes concorrentes. O {\itshape named pipe} deve ser removido do sistema de ficheiros após o fim da sessão.\hypertarget{md_README_autotoc_md7}{}\doxysubsection{1.\+3. $<$em$>$\+Subscriber$<$/em$>$}\label{md_README_autotoc_md7}
+Um subscritor é um processo lançado da seguinte forma\+:
+
+
+\begin{DoxyCode}{0}
+\DoxyCodeLine{sub\ <register\_pipe>\ <pipe\_name>\ <box\_name>}
+
+\end{DoxyCode}
+
+
+Assim que é lançado, o {\itshape subscriber}\+:
+
+
+\begin{DoxyEnumerate}
+\item Liga-\/se à {\itshape mbroker}, indicando qual a caixa de mensagens que pretende subscrever;
+\item Recolhe as mensagens já aí armazenadas e imprime-\/as uma a uma no {\ttfamily stdout}, delimitadas por {\ttfamily \textbackslash{}n};
+\item Fica à escuta de novas mensagens;
+\item Imprime novas mensagens quando são escritas para o {\itshape named pipe} para o qual tem uma sessão aberta.
+\end{DoxyEnumerate}
+
+Para terminar o {\itshape subscriber}, este deve processar adequadamente o {\ttfamily SIGINT} (i.\+e., o Ctrl-\/C), fechando a sessão e imprimindo no {\ttfamily stdout} o número de mensagens recebidas durante a sessão.
+
+O nome do {\itshape named pipe} da sessão é escolhido automaticamente pelo {\itshape subscriber}, de forma a garantir que não existem conflitos com outros clientes concorrentes. O {\itshape named pipe} deve ser removido do sistema de ficheiros após o fim da sessão.\hypertarget{md_README_autotoc_md8}{}\doxysubsection{1.\+4. $<$em$>$\+Manager$<$/em$>$}\label{md_README_autotoc_md8}
+Um gestor é um processo lançado de uma das seguintes formas\+:
+
+
+\begin{DoxyCode}{0}
+\DoxyCodeLine{manager\ <register\_pipe>\ <pipe\_name>\ create\ <box\_name>}
+\DoxyCodeLine{manager\ <register\_pipe>\ <pipe\_name>\ remove\ <box\_name>}
+\DoxyCodeLine{manager\ <register\_pipe>\ <pipe\_name>\ list}
+
+\end{DoxyCode}
+
+
+Assim que é lançado, o {\itshape manager}\+:
+
+
+\begin{DoxyEnumerate}
+\item Envia o pedido à {\itshape mbroker};
+\item Recebe a resposta no {\itshape named pipe} criado pelo próprio {\itshape manager};
+\item Imprime a resposta e termina.
+\end{DoxyEnumerate}
+
+O nome do {\itshape named pipe} da sessão é escolhido automaticamente pelo {\itshape manager}, de forma a garantir que não existem conflitos com outros clientes concorrentes. O {\itshape named pipe} deve ser removido do sistema de ficheiros antes do {\itshape manager} terminar.\hypertarget{md_README_autotoc_md9}{}\doxysubsection{1.\+5. Exemplos de execução}\label{md_README_autotoc_md9}
+Um primeiro {\bfseries{exemplo}} considera o funcionamento {\bfseries{sequencial}} dos clientes\+:
+
+
+\begin{DoxyEnumerate}
+\item Um {\itshape manager} cria a caixa {\ttfamily bla};
+\item Um {\itshape publisher} liga-\/se à mesma caixa, escreve 3 mensagens e desliga-\/se;
+\item Um {\itshape subscriber} liga-\/se à mesma caixa e começa a receber mensagens;
+\item Recebe as três, uma de cada vez, e depois fica à espera de mais mensagens.
+\end{DoxyEnumerate}
+
+Num segundo {\bfseries{exemplo}}, mais interessante, vai existir {\bfseries{concorrência}} entre clientes\+:
+
+
+\begin{DoxyEnumerate}
+\item Um {\itshape publisher} liga-\/se;
+\item Entretanto, um {\itshape subscriber} para a mesma caixa, liga-\/se também;
+\item O {\itshape publisher} coloca mensagens na caixa e estas vão sendo entregues imediatamente ao {\itshape subscriber}, ficando à mesma registadas no ficheiro;
+\item Um outro {\itshape subscriber} liga-\/se à mesma caixa, e começa a receber as mensagens todas desde o início da sua subscrição;
+\item Agora, quando o {\itshape publisher} escreve uma nova mensagem, ambos os {\itshape subscriber} recebem a mensagem diretamente.
+\end{DoxyEnumerate}\hypertarget{md_README_autotoc_md10}{}\doxysection{2. Protocolo}\label{md_README_autotoc_md10}
+Para moderar a interação entre o servidor e os clientes, é estabelecido um protocolo, que define como é que as mensagens são serializadas, ou seja, como é que ficam arrumadas num {\itshape buffer} de {\itshape bytes}. Este tipo de protocolo é por vezes referido como um {\itshape wire protocol}, numa alusão aos dados que efetivamente circulam no meio de transmissão, que neste caso, serão os {\itshape named pipes}.
+
+O conteúdo de cada mensagem deve seguir o seguinte formato, onde\+:
+
+
+\begin{DoxyItemize}
+\item O símbolo {\ttfamily $\vert$} denota a concatenação de elementos numa mensagem;
+\item Todas as mensagens de pedido são iniciadas por um código que identifica a operação solicitada ({\ttfamily OP\+\_\+\+CODE});
+\item As {\itshape strings} que transportam os nomes de {\itshape named pipes} são de tamanho fixo, indicado na mensagem. No caso de nomes de tamanho inferior, os caracteres adicionais devem ser preenchidos com {\ttfamily \textbackslash{}0}.
+\end{DoxyItemize}\hypertarget{md_README_autotoc_md11}{}\doxysubsection{2.\+1. Registo}\label{md_README_autotoc_md11}
+O {\itshape named pipe} do servidor, que só recebe registos de novos clientes, deve receber mensagens do seguinte tipo\+:
+
+Pedido de registo de {\itshape publisher}\+:
+
+
+\begin{DoxyCode}{0}
+\DoxyCodeLine{[\ code\ =\ 1\ (uint8\_t)\ ]\ |\ [\ client\_named\_pipe\_path\ (char[256])\ ]\ |\ [\ box\_name\ (char[32])\ ]}
+
+\end{DoxyCode}
+
+
+Pedido de registo de {\itshape subscriber}\+:
+
+
+\begin{DoxyCode}{0}
+\DoxyCodeLine{[\ code\ =\ 2\ (uint8\_t)\ ]\ |\ [\ client\_named\_pipe\_path\ (char[256])\ ]\ |\ [\ box\_name\ (char[32])\ ]}
+
+\end{DoxyCode}
+
+
+Pedido de criação de caixa\+:
+
+
+\begin{DoxyCode}{0}
+\DoxyCodeLine{[\ code\ =\ 3\ (uint8\_t)\ ]\ |\ [\ client\_named\_pipe\_path\ (char[256])\ ]\ |\ [\ box\_name\ (char[32])\ ]}
+
+\end{DoxyCode}
+
+
+Resposta ao pedido de criação de caixa\+:
+
+
+\begin{DoxyCode}{0}
+\DoxyCodeLine{[\ code\ =\ 4\ (uint8\_t)\ ]\ |\ [\ return\_code\ (int32\_t)\ ]\ |\ [\ error\ message\ (char[1024])\ ]}
+
+\end{DoxyCode}
+
+
+O return code deve ser {\ttfamily 0} se a caixa foi criada com sucesso, e {\ttfamily -\/1} em caso de erro. Em caso de erro a mensagem de erro é enviada (caso contrário, fica simplesmente inicializada com {\ttfamily \textbackslash{}0}).
+
+Pedido de remoção de caixa\+:
+
+
+\begin{DoxyCode}{0}
+\DoxyCodeLine{[\ code\ =\ 5\ (uint8\_t)\ ]\ |\ [\ client\_named\_pipe\_path\ (char[256])\ ]\ |\ [\ box\_name\ (char[32])\ ]}
+
+\end{DoxyCode}
+
+
+Resposta ao pedido de remoção de caixa\+:
+
+
+\begin{DoxyCode}{0}
+\DoxyCodeLine{[\ code\ =\ 6\ (uint8\_t)\ ]\ |\ [\ return\_code\ (int32\_t)\ ]\ |\ [\ error\ message\ (char[1024])\ ]}
+
+\end{DoxyCode}
+
+
+Pedido de listagem de caixas\+:
+
+
+\begin{DoxyCode}{0}
+\DoxyCodeLine{[\ code\ =\ 7\ (uint8\_t)\ ]\ |\ [\ client\_named\_pipe\_path\ (char[256])\ ]}
+
+\end{DoxyCode}
+
+
+A resposta à listagem de caixas vem em várias mensagens, do seguinte tipo\+:
+
+
+\begin{DoxyCode}{0}
+\DoxyCodeLine{[\ code\ =\ 8\ (uint8\_t)\ ]\ |\ [\ last\ (uint8\_t)\ ]\ |\ [\ box\_name\ (char[32])\ ]\ |\ [\ box\_size\ (uint64\_t)\ ]\ |\ [\ n\_publishers\ (uint64\_t)\ ]\ |\ [\ n\_subscribers\ (uint64\_t)\ ]}
+
+\end{DoxyCode}
+
+
+O byte {\ttfamily last} é {\ttfamily 1} se esta for a última caixa da listagem e a {\ttfamily 0} em caso contrário. {\ttfamily box\+\_\+size} é o tamanho (em {\itshape bytes}) da caixa, com {\ttfamily n\+\_\+publisher} ({\ttfamily 0} ou {\ttfamily 1}) indicando se existe um {\itshape publisher} ligado à caixa naquele momento, e {\ttfamily n\+\_\+subscriber} o número de subscritores da caixa naquele momento.\hypertarget{md_README_autotoc_md12}{}\doxysubsection{2.\+2 $<$em$>$\+Publisher$<$/em$>$}\label{md_README_autotoc_md12}
+O {\itshape publisher} envia mensagens para o servidor do tipo\+:
+
+
+\begin{DoxyCode}{0}
+\DoxyCodeLine{[\ code\ =\ 9\ (uint8\_t)\ ]\ |\ [\ message\ (char[1024])\ ]}
+
+\end{DoxyCode}
+\hypertarget{md_README_autotoc_md13}{}\doxysubsection{2.\+3 $<$em$>$\+Subscriber$<$/em$>$}\label{md_README_autotoc_md13}
+O servidor envia mensagens para o {\itshape subscriber} do tipo\+:
+
+
+\begin{DoxyCode}{0}
+\DoxyCodeLine{[\ code\ =\ 10\ (uint8\_t)\ ]\ |\ [\ message\ (char[1024])\ ]}
+
+\end{DoxyCode}
+\hypertarget{md_README_autotoc_md14}{}\doxysection{3. Requisitos de implementação}\label{md_README_autotoc_md14}
+\hypertarget{md_README_autotoc_md15}{}\doxysubsection{3.\+1. Tratamento de clientes}\label{md_README_autotoc_md15}
+Quando o servidor inicia, lança um conjunto de {\ttfamily S} tarefas ({\itshape thread pool}), que ficam à espera de pedidos de registo para tratar, que irão receber através da fila produtor-\/consumidor. A {\itshape main thread} gere o {\itshape named pipe} de registo, e coloca os pedidos de registo na fila produtor-\/consumidor. Quando uma {\itshape thread} termina uma sessão, fica à espera de nova sessão para tratar.\hypertarget{md_README_autotoc_md16}{}\doxysubsection{3.\+2 Caixas de armazenamento}\label{md_README_autotoc_md16}
+As mensagens recebidas pelo servidor devem ser colocadas numa caixa. Na prática, uma caixa corresponde a um ficheiro no Tecnico\+FS. O ficheiro deve ser criado quando a caixa for criada pelo {\itshape manager}, e apagado quando a caixa for removida. Todas as mensagens que vão sendo recebidas são escritas no fim do ficheiro, separadas por {\ttfamily \textbackslash{}0}.
+
+Resumindo, as mensagens são acumuladas nas caixas. Quando um subscritor se liga a uma caixa, o ficheiro correspondente é aberto e as mensagens começam a ser lidas desde o início (mesmo que o mesmo subscritor ou outro já as tenha recebido antes). Ulteriores mensagens geradas pelo {\itshape publisher} de uma caixa deverão ser também entregues aos {\itshape subscribers} da caixa. Esta funcionalidade deverá ser implementada usando {\bfseries{variáveis de condição}} com o objetivo de evitar esperas ativas.\hypertarget{md_README_autotoc_md17}{}\doxysubsection{3.\+3 Formatação de mensagens}\label{md_README_autotoc_md17}
+Para uniformizar o {\itshape output} dos diversos comandos (para o {\ttfamily stdout}), é fornecido o formato com que estas devem ser impressas.\hypertarget{md_README_autotoc_md18}{}\doxysubsection{3.\+4 Fila Produtor-\/\+Consumidor}\label{md_README_autotoc_md18}
+A fila produtor-\/consumidor é a estrutura de sincronização mais complexa do projeto. Por isso, esta componente vai ser avaliada em isolamento (i.\+e., existirão testes que usam apenas a interface descrita no {\ttfamily producer-\/consumer.\+h}) para garantir a sua correção. Como tal, a interface do {\ttfamily producer-\/consumer.\+h} não deve ser alterada.
+
+De resto, os grupos são livres de alterar o código base como lhes for conveniente.\hypertarget{md_README_autotoc_md19}{}\doxysubsubsection{Mensagens do subscritor}\label{md_README_autotoc_md19}
+
+\begin{DoxyCode}{0}
+\DoxyCodeLine{fprintf(stdout,\ \textcolor{stringliteral}{"{}\%s\(\backslash\)n"{}},\ message);}
+
+\end{DoxyCode}
+\hypertarget{md_README_autotoc_md20}{}\doxysubsubsection{Listagem de caixas}\label{md_README_autotoc_md20}
+Cada linha da listagem de caixas deve ser impressa da seguinte forma\+:
+
+
+\begin{DoxyCode}{0}
+\DoxyCodeLine{fprintf(stdout,\ \textcolor{stringliteral}{"{}\%s\ \%zu\ \%zu\ \%zu\(\backslash\)n"{}},\ box\_name,\ box\_size,\ n\_publishers,\ n\_subscribers);}
+
+\end{DoxyCode}
+
+
+As caixas devem estar ordenadas por ordem alfabética, não sendo garantido que o servidor as envie por essa ordem (i.\+e., o cliente deve ordenar as caixas antes das imprimir).\hypertarget{md_README_autotoc_md21}{}\doxysubsection{3.\+5 Espera Ativa}\label{md_README_autotoc_md21}
+No projeto, nunca devem ser usados mecanismos de espera ativa.\hypertarget{md_README_autotoc_md22}{}\doxysection{4. Sugestão de implementação}\label{md_README_autotoc_md22}
+Sugere-\/se que implementem o projeto através dos seguintes passos\+:
+
+
+\begin{DoxyEnumerate}
+\item Implementar as interfaces de linha de comando (CLI) dos clientes;
+\item Implementar a serialização do protocolo de comunicação;
+\item Implementar uma versão básica do {\ttfamily mbroker}, onde só existe uma {\itshape thread} que, em ciclo, a) recebe um pedido de registo; b) trata a sessão correspondente; e c) volta a ficar à espera do pedido de registo;
+\item Implementar a fila produtor-\/consumidor;
+\item Utilizar a fila produtor-\/consumidor para gerir e encaminhar os pedidos de registo para as {\itshape worker threads}.
+\end{DoxyEnumerate}\hypertarget{md_README_autotoc_md23}{}\doxysection{5. Submissão e avaliação}\label{md_README_autotoc_md23}
+A submissão é feita através do Fénix {\bfseries{até sexta-\/feira, dia 13/\+Janeiro/2023, às 20h00}}.
+
+Os estudantes devem submeter um ficheiro no formato {\ttfamily zip} com o código fonte e o ficheiro {\ttfamily Makefile}. O arquivo submetido não deve incluir outros ficheiros (tais como binários). Além disso, o comando {\ttfamily make clean} deve limpar todos os ficheiros resultantes da compilação do projeto, bem como o comando {\ttfamily make fmt}, para formatar automaticamente o código.
+
+Recomendamos que os alunos se assegurem que o projeto compila/corre corretamente no \href{https://github.com/tecnico-so/lab_ambiente}{\texttt{ ambiente de referência}}. Ao avaliar os projetos submetidos, em caso de dúvida sobre o funcionamento do código submetido, os docentes usarão o ambiente de referência para fazer a validação final. O uso de outros ambientes para o desenvolvimento/teste do projeto (e.\+g., mac\+OS, Windows/\+WSL) é permitido, mas o corpo docente não dará apoio técnico a dúvidas relacionadas especificamente com esses ambientes.
+
+A avaliação será feita de acordo com o método de avaliação descrito no Fénix
+
+{\itshape Bom trabalho!} 
