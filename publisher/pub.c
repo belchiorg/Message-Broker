@@ -1,4 +1,6 @@
 #include <fcntl.h>
+#include <signal.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -9,93 +11,111 @@
 
 #define MAX_MESSAGE_LEN 292
 
+const char *register_pipe_name;
+Message_Protocol *message = NULL;
+Registry_Protocol *registry = NULL;
+int fd = -1;
+int session = -1;
+
+/**
+ * @brief Free the message and the registry
+ * @param sig signal received
+ */
+void sig_handler(int sig) {
+    (void)sig;
+    close(0);
+}
+
+/**
+ * @brief Publisher will write the messages from stdin
+ * @param argc max arguments that mbroker input can receive
+ * @param argv contains the pipe name and the number of max sessions insert by
+ * the user
+ */
 int main(int argc, char **argv) {
-  (void)argc;
-  (void)argv;
+    // Check if theres any type of signal
+    if (signal(SIGINT, sig_handler) == SIG_ERR) {
+    }
+    if (signal(SIGQUIT, sig_handler) == SIG_ERR) {
+    }
+    if (signal(SIGPIPE, sig_handler) == SIG_ERR) {
+    }
 
-  if (argc != 4) {
-    fprintf(stderr, "usage: pub <register_pipe_name> <pipe_name> <box_name>\n");
-  }
+    if (argc != 4) {
+        fprintf(stderr,
+                "usage: pub <register_pipe_name> <pipe_name> <box_name>\n");
+    }
 
-  const char *register_pipe_name = argv[1];  // Nome do pipe do Cliente
-  const char *pipe_name = argv[2];  // Canal que recebe as mensagens (servidor)
-  const char *boxName = argv[3];    // Pipe de mensagem (Ficheiro TFS)
+    register_pipe_name = argv[1];    // Nome do pipe da sessão
+    const char *pipe_name = argv[2]; // Canal que recebe as mensagens (servidor)
+    const char *boxName = argv[3];   // Pipe de mensagem (Ficheiro TFS)
 
-  int fd = open(pipe_name, O_WRONLY | O_APPEND);
-  if (fd < 0) {
-    perror("Error while opening fifo at publisher");
-    exit(EXIT_FAILURE);
-  }
+    // Open the file from the pipe
+    fd = open(pipe_name, O_WRONLY | O_APPEND);
+    if (fd < 0) {
+        fprintf(stderr, "Error while opening fifo at publisher");
+        raise(SIGTERM);
+    }
 
-  Registry_Protocol *registry =
-      (Registry_Protocol *)malloc(sizeof(Registry_Protocol));
+    registry = (Registry_Protocol *)malloc(sizeof(Registry_Protocol));
 
-  registry->code = 1;
-  strcpy(registry->register_pipe_name, register_pipe_name);
-  strcat(registry->box_name, "/");
-  strncat(registry->box_name, boxName, 31);
+    // Update the registry with the pipe and box message info
+    registry->code = 1;
+    strcpy(registry->register_pipe_name, register_pipe_name);
+    strcat(registry->box_name, "/");
+    strncat(registry->box_name, boxName, 31);
 
-  unlink(register_pipe_name);  //!-> passou para o publisher
+    // Create the fifo for the pipe
+    if (mkfifo(register_pipe_name, 0777) < 0) {
+        free(registry);
+        fprintf(stderr, "Error while creating fifo");
+        raise(SIGTERM);
+    }
 
-  if (write(fd, registry, sizeof(Registry_Protocol)) < 0) {
+    // Write the registry in the file
+    if (write(fd, registry, sizeof(Registry_Protocol)) < 0) {
+        free(registry);
+        fprintf(stderr, "Error while writing in fifo");
+        raise(SIGTERM);
+    }
+
     free(registry);
-    perror("Error while writing in fifo");
-    exit(EXIT_FAILURE);
-  }
+    registry = NULL;
 
-  if (mkfifo(register_pipe_name, 0777) < 0) {
-    perror("Error while creating fifo");
-    exit(EXIT_FAILURE);
-  }
+    close(fd);
 
-  free(registry);
-
-  close(fd);
-
-  int session = open(register_pipe_name, O_WRONLY);
-  if (session < 0) {
-    perror("Couldn't open session fifo");
-    exit(EXIT_FAILURE);
-  }
-
-  Message_Protocol *message;
-  ssize_t n = 0;
-  ssize_t t = 0;
-
-  message = (Message_Protocol *)malloc(sizeof(Message_Protocol));
-  message->code = 9;
-  while (1) {
-    //* Versão anti-bug das threads:
-
-    t = 0;
-
-    if (fgets(message->message, 1024, stdin) == NULL) break;
-
-    if (message->message[0] == '*') {
-      break;
+    session = open(register_pipe_name, O_WRONLY);
+    if (session < 0) {
+        fprintf(stderr, "Couldn't open session fifo");
+        raise(SIGTERM);
     }
 
-    t = (ssize_t)strlen(message->message);
-    message->message[t - 1] = 0;
+    ssize_t t = 0;
 
-    n += t;
+    // Allocate for the publisher message
+    message = (Message_Protocol *)malloc(sizeof(Message_Protocol));
+    message->code = 9;
+    while (1) {
+        memset(message->message, 0, 1024);
 
-    if (write(session, message, sizeof(Message_Protocol)) < 0) {
-      free(message);
-      perror("Error while writing from stdin");
-      exit(EXIT_FAILURE);
+        // Receive from the stdin
+        if (fgets(message->message, 1024, stdin) == NULL)
+            break;
+
+        t = (ssize_t)strlen(message->message);
+        message->message[t - 1] = '\0'; // removes '\n'
+
+        // Case that we have nothing more to write
+        if (write(session, message, sizeof(Message_Protocol)) < 0) {
+            free(message);
+            fprintf(stderr, "Error while writing from stdin");
+            raise(SIGTERM);
+        }
     }
 
-    memset(message->message, 0, 1024);
-  }
+    free(message);
 
-  free(message);
+    unlink(register_pipe_name);
 
-  printf("%lu", n);
-
-  close(session);
-
-  unlink(register_pipe_name);
-
-  return 0;
+    return 0;
 }

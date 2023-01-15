@@ -1,4 +1,6 @@
 #include <fcntl.h>
+#include <signal.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -7,89 +9,125 @@
 #include "../utils/utils.h"
 #include "logging.h"
 
-#define MAX_MESSAGE_LEN 291
+int messages_n = 0;
+int fd;
+int session;
+const char *register_pipe_name;
+Registry_Protocol *registry = NULL;
 
+Message_Protocol *message = NULL;
+
+atomic_int end_program = 0;
+
+/**
+ * @brief Free the message and the registry
+ * @param sig signal received
+ */
+void sig_handler(int sig) {
+    (void)sig;
+    end_program++;
+}
+
+/**
+ * @brief
+ * @param sig signal received
+ */
 int main(int argc, char **argv) {
-  if (argc != 4) {
-    fprintf(stderr, "usage: sub <register_pipe_name> <pipe_name> <box_name>\n");
-  }
+    // Check if theres any type of signal
+    if (signal(SIGINT, sig_handler) == SIG_ERR) {
+    }
+    if (signal(SIGQUIT, sig_handler) == SIG_ERR) {
+    }
+    if (signal(SIGPIPE, sig_handler) == SIG_ERR) {
+    }
+    if (signal(SIGTERM, sig_handler) == SIG_ERR) {
+    }
 
-  const char *register_pipe_name = argv[1];  // Nome do pipe do Cliente
-  const char *pipe_name = argv[2];  // Canal que recebe as mensagens (servidor)
-  const char *box_name = argv[3];   // Pipe de mensagem (Ficheiro TFS)
+    if (argc != 4) {
+        fprintf(stderr,
+                "usage: sub <register_pipe_name> <pipe_name> <box_name>\n");
+    }
 
-  int fd = open(pipe_name, O_WRONLY | O_APPEND);
+    register_pipe_name = argv[1];    // Nome do pipe do Cliente
+    const char *pipe_name = argv[2]; // Canal que recebe as mensagens (servidor)
+    const char *box_name = argv[3];  // Pipe de mensagem (Ficheiro TFS)
 
-  if (fd < 0) {
-    perror("Error while opening fifo at publisher");
-    exit(EXIT_FAILURE);
-  }
+    // Open the file from the pipe
+    fd = open(pipe_name, O_WRONLY | O_APPEND);
 
-  unlink(
-      register_pipe_name);  //! Vão todos para os tratamentos dos signals uwu :D
+    if (fd < 0) {
+        fprintf(stderr, "Error while opening fifo at publisher");
+        raise(SIGTERM);
+    }
 
-  if (mkfifo(register_pipe_name, 0640) < 0) {
-    perror("Error while creating fifo");
-    exit(EXIT_FAILURE);
-  }
+    if (mkfifo(register_pipe_name, 0640) < 0) {
+        fprintf(stderr, "Error while opening fifo at publisher");
+        raise(SIGTERM);
+    }
 
-  Registry_Protocol *registry =
-      (Registry_Protocol *)malloc(sizeof(Registry_Protocol));
+    registry = (Registry_Protocol *)malloc(sizeof(Registry_Protocol));
 
-  registry->code = 2;
-  strcpy(registry->register_pipe_name, register_pipe_name);
-  strcat(registry->box_name, "/");
-  strncat(registry->box_name, box_name, 31);
+    // Update the registry with the pipe and box message info
+    registry->code = 2;
+    strcpy(registry->register_pipe_name, register_pipe_name);
+    strcat(registry->box_name, "/");
+    strncat(registry->box_name, box_name, 31);
 
-  if (write(fd, registry, sizeof(Registry_Protocol)) < 0) {
+    // Write the registry in the file
+    if (write(fd, registry, sizeof(Registry_Protocol)) < 0) {
+        close(fd);
+        fprintf(stderr, "Error while writing in fifo");
+        raise(SIGTERM);
+    }
+
+    free(registry);
+    registry = NULL;
+
     close(fd);
-    perror("Error while writing in fifo");
-    exit(EXIT_FAILURE);
-  }
 
-  close(fd);
+    // Open the pipe session
+    if ((session = open(register_pipe_name, O_RDONLY)) < 0) {
+        fprintf(stderr, "Couldn't open session fifo");
+        raise(SIGTERM);
+    }
 
-  int session;
-  if ((session = open(register_pipe_name, O_RDONLY)) < 0) {
-    perror("Couldn't open session fifo");
-    exit(EXIT_FAILURE);
-  }
+    // Allocate for the subscriber receive message
+    message = (Message_Protocol *)malloc(sizeof(Message_Protocol));
 
-  Message_Protocol *message =
-      (Message_Protocol *)malloc(sizeof(Message_Protocol));
+    ssize_t n;
 
-  int offset = 0;
-
-  while (read(session, message, sizeof(Message_Protocol)) > 0) {
-    while (offset < 1024 && !(message->message[offset] == '\0' &&
-                              message->message[offset + 4] == '\0')) {
-      if (message->message[offset] == '\0') {
-        if (write(1, "\n", 1)) {
+    // Read all the message received, increments the number of messages and
+    // increment again by the number of lines the message have.
+    // After read the message print it in stdout
+    if (!end_program &&
+        ((n = read(session, message, sizeof(Message_Protocol))) > 0)) {
+        messages_n++;
+        for (int i = 0; (i < 1023 && !(message->message[i] == '\0' &&
+                                       message->message[i + 1] == '\0'));
+             i++) {
+            if (message->message[i] == '\0') {
+                message->message[i] = '\n';
+                messages_n++;
+            }
         }
-      } else {
-        if (write(1, message->message + offset, 1)) {
-        }
-      }
-      offset++;
+        fprintf(stdout, "%s\n", message->message);
+
+        memset(message->message, 0, sizeof(Message_Protocol));
     }
 
-    if (write(1, "\n", 1)) {
+    while (!end_program &&
+           ((n = read(session, message, sizeof(Message_Protocol))) > 0)) {
+        fprintf(stdout, "%s\n", message->message);
+        messages_n++;
+        memset(message->message, 0, sizeof(Message_Protocol));
     }
 
-    if (offset >= 1024) {
-      break;
-    }
+    fprintf(stdout, "%d\n", messages_n);
 
-    offset += 2;
+    free(message);
+    unlink(register_pipe_name);
+    close(session);
+    exit(EXIT_SUCCESS);
 
-    memset(message, 0, sizeof(Message_Protocol));
-  }
-
-  free(message);
-
-  close(session);
-
-  unlink(register_pipe_name);
-
-  return 0;
+    return 0;
 }

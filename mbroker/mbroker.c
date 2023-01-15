@@ -1,5 +1,7 @@
 #include <fcntl.h>
 #include <semaphore.h>
+#include <signal.h>
+#include <stdatomic.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -12,93 +14,130 @@
 #include "message_box.h"
 #include "protocol.h"
 
-sem_t sessionsSem;
+size_t max_sessions_var = 0;
 pc_queue_t queue;
+int fd;
+const char *pipe_name;
+pthread_t *worker_threadsPtr;
 
-int main(int argc, char** argv) {
-  // expected argv:
-  // 0 - nome do programa
-  // 1 - pipename
-  // 2 - max sessions
+/**
+ * @brief Signal handler that unlinks the pipe, destroys all the box messages
+ * and closes TFS. Kills all the threads in use too.
+ *
+ * @param sig signal received
+ */
+void sig_handler(int sig) {
+    (void)sig;
 
-  if (argc != 3) {
-    fprintf(stderr, "usage: mbroker <pipeName> <maxSessions>\n");
-    exit(EXIT_FAILURE);
-  }
-
-  const char* pipeName = argv[1];
-  const size_t maxSessions = (size_t)atoi(argv[2]);
-
-  pthread_t workerThreads[maxSessions];
-  for (int i = 0; i < maxSessions; i++) {
-    pthread_create(workerThreads[i], NULL, &workerThreadFunc, NULL);
-  }
-
-  pcq_create(&queue, (size_t)maxSessions);
-
-  if (sem_init(&sessionsSem, 0, (unsigned int)maxSessions) == -1) {
-    perror("sem_init");
-    exit(EXIT_FAILURE);
-  }
-
-  tfs_init(NULL);
-
-  unlink(pipeName);
-
-  if (mkfifo(pipeName, 0640) < 0) {
+    unlink(pipe_name);
     tfs_destroy();
-    exit(EXIT_FAILURE);
-  }
+    destroy_all_boxes();
+    pcq_destroy(&queue);
+    close(fd);
+    exit(EXIT_SUCCESS);
+}
 
-  int fd = open(pipeName, TFS_O_TRUNC);
-  if (fd < 0) {
-    tfs_destroy();
-    exit(EXIT_FAILURE);
-  }
-
-  while (1) {
-    Registry_Protocol* registry =
-        (Registry_Protocol*)malloc(sizeof(Registry_Protocol));
-    // This loop reads the pipe, always expecting new registrys
-
-    if ((read(fd, registry, sizeof(Registry_Protocol))) != 0) {
-      // Received a registry
-
-      switch (registry->code) {
+/**
+ * @brief Check which type of registry the client want
+ * to use.
+ */
+void *worker_threads_func() {
+    while (1) {
+        Registry_Protocol *registry = pcq_dequeue(&queue);
+        switch (registry->code) {
         case 1:
-          register_pub(registry->register_pipe_name, registry->box_name);
-          break;
+            register_pub(registry->register_pipe_name, registry->box_name);
+            break;
 
         case 2:
-          register_sub(registry->register_pipe_name, registry->box_name);
-          break;
+            register_sub(registry->register_pipe_name, registry->box_name);
+            break;
 
         case 3:
-          create_box(registry->register_pipe_name, registry->box_name);
-          break;
+            create_box(registry->register_pipe_name, registry->box_name);
+            break;
 
         case 5:
-          destroy_box(registry->register_pipe_name, registry->box_name);
-          break;
+            destroy_box(registry->register_pipe_name, registry->box_name);
+            break;
 
         case 7:
-          send_list_boxes(registry->register_pipe_name);
-          break;
+            send_list_boxes_protocol(registry->register_pipe_name);
+            break;
 
         default:
-          break;
-      }
+            break;
+        }
+        free(registry);
     }
-    free(registry);
-  }
+}
 
-  pcq_destroy(&queue);
+/**
+ * @param argc max arguments that mbroker input can receive
+ * @param argv contains the pipe name and the number of max sessions insert by
+ * the user
+ */
 
-  tfs_destroy();
+int main(int argc, char **argv) {
+    if (signal(SIGINT, sig_handler) == SIG_ERR) {
+    }
+    if (signal(SIGQUIT, sig_handler) == SIG_ERR) {
+    }
+    if (signal(SIGTERM, sig_handler) == SIG_ERR) {
+    }
+    if (signal(SIGUSR1, thread_sig_handler) == SIG_ERR) {
+    }
+    if (signal(SIGPIPE, SIG_IGN) == SIG_ERR) {
+        // SIGPIPE should be handled locally
+    }
 
-  close(fd);
+    // 3 arguments must be provided
+    if (argc != 3) {
+        fprintf(stderr, "usage: mbroker <pipe_name> <max_sessions>\n");
+        exit(EXIT_FAILURE);
+    }
 
-  sem_destroy(&sessionsSem);
+    pipe_name = argv[1];                               // Server pipe_name
+    const size_t max_sessions = (size_t)atoi(argv[2]); // Number of max_sessions
 
-  return EXIT_FAILURE;
+    // global_var used to join all threads
+    max_sessions_var = max_sessions;
+
+    // Creates the producer-consumer queue
+    pcq_create(&queue, (size_t)max_sessions);
+
+    // Initializes the TFS
+    tfs_init(NULL);
+
+    // Initializes worker threads. They should start handling registries
+    pthread_t worker_threads[max_sessions];
+    worker_threadsPtr = worker_threads;
+    for (int i = 0; i < max_sessions; i++) {
+        pthread_create(&worker_threads[i], NULL, &worker_threads_func, NULL);
+    }
+
+    // Creates the named pipe that receives
+    if (mkfifo(pipe_name, 0640) < 0) {
+        fprintf(stderr, "Error while creating server fifo");
+        raise(SIGTERM);
+    }
+
+    // Opens the named pipe that receives
+    fd = open(pipe_name, TFS_O_TRUNC);
+    if (fd < 0) {
+        fprintf(stderr, "Error while opening server fifo");
+        raise(SIGTERM);
+    }
+
+    Registry_Protocol *registry;
+    while (1) {
+        // Creates the registry thats going to be used to store the new request
+        registry = (Registry_Protocol *)malloc(sizeof(Registry_Protocol));
+        if ((read(fd, registry, sizeof(Registry_Protocol))) != 0) {
+            // Received a registry
+            pcq_enqueue(&queue, registry);
+        }
+    }
+
+    return -1;
 }
