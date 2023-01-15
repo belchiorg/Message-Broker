@@ -27,6 +27,15 @@ void sig_handler(int sig) {
 }
 
 /**
+ * @brief Free the message and the registry
+ * @param sig signal received
+ */
+void term_handler(int sig) {
+    (void)sig;
+    exit(EXIT_SUCCESS);
+}
+
+/**
  * @brief Publisher will write the messages from stdin
  * @param argc max arguments that mbroker input can receive
  * @param argv contains the pipe name and the number of max sessions insert by
@@ -39,6 +48,8 @@ int main(int argc, char **argv) {
     if (signal(SIGQUIT, sig_handler) == SIG_ERR) {
     }
     if (signal(SIGPIPE, sig_handler) == SIG_ERR) {
+    }
+    if (signal(SIGTERM, term_handler) == SIG_ERR) {
     }
 
     if (argc != 4) {
@@ -53,7 +64,7 @@ int main(int argc, char **argv) {
     // Open the file from the pipe
     fd = open(pipe_name, O_WRONLY | O_APPEND);
     if (fd < 0) {
-        fprintf(stderr, "Error while opening fifo at publisher");
+        fprintf(stderr, "Error while opening fifo at publisher\n");
         raise(SIGTERM);
     }
 
@@ -65,29 +76,38 @@ int main(int argc, char **argv) {
     strcat(registry->box_name, "/");
     strncat(registry->box_name, boxName, 31);
 
+    session = open(register_pipe_name, 0);
+    if (session >= 0) {
+        close(session);
+        fprintf(stderr, "There is already a client with said name\n");
+        raise(SIGTERM);
+    }
+
     // Create the fifo for the pipe
     if (mkfifo(register_pipe_name, 0777) < 0) {
+        unlink(register_pipe_name);
         free(registry);
-        fprintf(stderr, "Error while creating fifo");
+        fprintf(stderr, "Error while creating fifo\n");
         raise(SIGTERM);
     }
 
     // Write the registry in the file
     if (write(fd, registry, sizeof(Registry_Protocol)) < 0) {
+        unlink(register_pipe_name);
         free(registry);
-        fprintf(stderr, "Error while writing in fifo");
+        fprintf(stderr, "Error while writing in fifo\n");
         raise(SIGTERM);
     }
 
     free(registry);
-    registry = NULL;
 
     close(fd);
 
     session = open(register_pipe_name, O_WRONLY);
     if (session < 0) {
-        fprintf(stderr, "Couldn't open session fifo");
-        raise(SIGTERM);
+        unlink(register_pipe_name);
+        fprintf(stderr, "Couldn't open fifo\n");
+        return -1;
     }
 
     ssize_t t = 0;
@@ -108,8 +128,8 @@ int main(int argc, char **argv) {
         // Case that we have nothing more to write
         if (write(session, message, sizeof(Message_Protocol)) < 0) {
             free(message);
-            fprintf(stderr, "Error while writing from stdin");
-            raise(SIGTERM);
+            fprintf(stderr, "Error while writing from stdin\n");
+            raise(SIGINT);
         }
     }
 
