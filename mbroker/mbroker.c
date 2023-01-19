@@ -65,6 +65,9 @@ void *worker_threads_func() {
             send_list_boxes_protocol(registry->register_pipe_name);
             break;
 
+        case 20:
+            send_ping_ping(registry->register_pipe_name);
+            break;
         default:
             break;
         }

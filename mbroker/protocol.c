@@ -338,3 +338,20 @@ int send_list_boxes_protocol(const char *pipe_name) {
 
     return 0;
 }
+
+int send_ping_ping(const char *pipe_name) {
+    int session = open(pipe_name, O_WRONLY);
+    if (session < 0) {
+        fprintf(stderr, "deu merda");
+        return -1;
+    }
+
+    if (write(session, "0", 1) == -1) {
+        fprintf(stderr, "deu merda de novo");
+        return -1;
+    }
+
+    close(session);
+
+    return 0;
+}

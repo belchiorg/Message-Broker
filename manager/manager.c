@@ -132,6 +132,26 @@ void update_boxes() {
     close(session_fd);
 }
 
+void ping_ping() {
+    session_fd = open(reg_pipe, O_RDONLY);
+    if (session_fd < 0) {
+        perror("Error while opening fifo at manager");
+        exit(EXIT_FAILURE);
+    }
+
+    char buffer[1];
+
+    if (read(session_fd, buffer, 1) < 0) {
+        perror("Error while opening fifo at manageraaaaaaaaa");
+        exit(EXIT_FAILURE);
+    }
+
+    fprintf(stdout, "%s\n", buffer);
+
+    unlink(reg_pipe);
+    close(session_fd);
+}
+
 int main(int argc, char **argv) {
     // Sets handlers for signals
     if (signal(SIGINT, sig_handler) == SIG_ERR) {
@@ -165,10 +185,14 @@ int main(int argc, char **argv) {
             // List code -> 7
             registry->code = 7;
             strcpy(registry->register_pipe_name, reg_pipe);
+        } else if (strcmp(action, "ping") == 0) {
+            registry->code = 20;
+            strcpy(registry->register_pipe_name, reg_pipe);
         } else {
             print_usage();
             raise(SIGTERM);
         }
+
     } else {
         // Copy infos to registry
         strcpy(registry->register_pipe_name, reg_pipe);
@@ -205,6 +229,9 @@ int main(int argc, char **argv) {
     if (registry->code == 7) {
         free(registry);
         list_boxes();
+    } else if (registry->code == 20) {
+        free(registry);
+        ping_ping();
     } else {
         free(registry);
         update_boxes();

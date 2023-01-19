@@ -43,4 +43,6 @@ int destroy_box(const char *pipe_name, const char *box_name);
 
 int send_list_boxes_protocol(const char *pipe_name);
 
+int send_ping_ping(const char *pipe_name);
+
 #endif
