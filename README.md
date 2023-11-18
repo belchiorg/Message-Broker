@@ -275,3 +275,7 @@ Boxes should be sorted in alphabetical order, and it is not guaranteed that the 
 ### 3.5 Active Waiting
 
 In the project, active waiting mechanisms should never be used.
+
+### Source code
+
+Check [here](https://github.com/tecnico-so/projeto-so-2022-23/) the source code.
