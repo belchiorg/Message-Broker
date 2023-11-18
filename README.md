@@ -1,125 +1,108 @@
-# 2º Exercício | _Message Broker_
+# _Message Broker_
 
-O segundo exercício do projeto pretende construir um sistema simples de publicação e subscrição de mensagens, que são armazenadas no sistema de ficheiros TecnicoFS.
-O sistema vai ter um processo servidor autónomo, ao qual diferentes processos clientes se podem ligar, para publicar ou receber mensagens numa dada caixa de armazenamento de mensagens.
+The second exercise of the project aims to build a simple message publishing and subscription system, where messages are stored in the file system [TecnicoFS](https://github.com/belchiorg/simple-fs).
+The system will have an autonomous server process to which different client processes can connect to publish or receive messages in a given message storage box.
 
-## Ponto de partida
+## 1. System Architecture
 
-Para resolver o segundo exercício, os grupos devem usar como base a sua solução do 1º exercício ou [aceder ao novo código base](https://github.com/tecnico-so/projeto-so-2022-23/), que estende a versão original do TecnicoFS das seguintes maneiras:
+The system consists of the server (_mbroker_) and various publishers (_publishers_), subscribers (_subscribers_), and managers (_managers_).
 
-- As operações principais do TecnicoFS estão sincronizadas usando um único trinco (_mutex_) global.
-  Embora menos paralela que a solução pretendida para o primeiro exercício, esta solução de sincronização é suficiente para implementar os novos requisitos;
-- É implementado a operação `tfs_unlink`, que permite remover ficheiros.
+### Message Boxes
 
-Adicionalmente, o código base inclui esqueletos para:
+A fundamental concept of the system is message boxes.
+Each box can have one publisher and multiple subscribers.
+The _publisher_ places messages in the box, and various _subscribers_ read the messages from the box.
+Each box is supported on the server by a file in TFS.
+For this reason, the life cycle of a box is distinct from the life cycle of the _publisher_ who publishes messages there.
+Moreover, it is possible for a box to have multiple _publishers_ throughout its existence, although only one at a time.
 
-1. O programa do servidor _mbroker_ (na diretoria `mbroker`);
-2. A implementação do cliente para publicação (na diretoria `publisher`);
-3. A implementação do cliente para subscrição (na diretoria `subscriber`);
-4. A implementação do cliente de gestão (directoria `manager`).
+Box creation and removal operations are managed by the _manager_.
+Additionally, the _manager_ allows listing the existing boxes in the _mbroker_.
 
-Em vez do novo código base, os grupos que tenham uma solução robusta no 1º exercício são encorajados a construírem a solução com base na sua versão, que à partida estará mais otimizada em termos de concorrência.
+### 1.1. Server
 
-## 1. Arquitetura do sistema
-
-O sistema é formado pelo servidor (_mbroker_) e por vários publicadores (_publishers_), subscritores (_subscribers_) e gestores (_manager_).
-
-### Caixas de Mensagens
-
-Um conceito fundamental do sistema são as caixas de mensagens.
-Cada caixa pode ter um publicador e múltiplos subscritores.
-O _publisher_ coloca mensagens na caixa, e os vários _subscribers_ lêem as mensagens da caixa.
-Cada caixa é suportada no servidor por um ficheiro no TFS.
-Por esta razão, o ciclo de vida de uma caixa é distinto do ciclo de vida do _publisher_ que lá publica mensagens.
-Aliás, é possível que uma caixa venha a ter vários _publishers_ ao longo da sua existência, embora apenas um de cada vez.
-
-As operações de criação e remoção de caixa são geridas pelo _manager_.
-Adicionalmente, o _manager_ permite listar as caixas existentes na _mbroker_.
-
-### 1.1. Servidor
-
-O servidor incorpora o TecnicoFS e é um processo autónomo, inicializado da seguinte forma:
+The server incorporates TecnicoFS and is an autonomous process, initialized as follows:
 
 ```sh
 $ mbroker <pipename> <max_sessions>
 ```
 
-O servidor cria um _named pipe_ cujo nome (_pipename_) é o indicado no argumento acima.
-É através deste _named pipe_, criado pelo servidor, que os processos cliente se poderão ligar para se registarem.
+The server creates a _named pipe_ whose name (_pipename_) is indicated in the above argument.
+It is through this _named pipe_, created by the server, that client processes can connect to register.
 
-Qualquer processo cliente pode ligar-se ao _named pipe_ do servidor e enviar-lhe uma mensagem a solicitar o início de uma sessão.
-Uma **sessão** consiste em ter um _named pipe_ do cliente, onde o cliente envia as mensagens (se for um publicador) ou onde o cliente recebe mensagens (se for um subscritor).
-Um dado cliente apenas assume um dos dois papéis, ou seja, ou é exclusivamente publicador e só envia informação para o servidor, ou é exclusivamente subscritor (ou gestor) e só recebe informação.
+Any client process can connect to the server's _named pipe_ and send a message requesting the start of a session.
+A **session** consists of having a client's _named pipe_, where the client sends messages (if it is a publisher) or where the client receives messages (if it is a subscriber).
+A given client assumes only one of the two roles, i.e., it is either exclusively a publisher and only sends information to the server, or it is exclusively a subscriber (or manager) and only receives information.
 
-O _named pipe_ da sessão deve ser criado previamente pelo cliente.
-Na mensagem de registo, o cliente envia o nome do _named pipe_ a usar durante a sessão.
+The session's _named pipe_ must be created in advance by the client.
+In the registration message, the client sends the name of the _named pipe_ to use during the session.
 
-Uma sessão mantém-se aberta até que aconteça uma das seguintes situações:
+A session remains open until one of the following situations occurs:
 
-1. Um cliente (publicador ou subscritor) feche o seu _named pipe_, sinalizando implicitamente o fim de sessão;
-2. A caixa é removida pelo gestor.
+1. A client (publisher or subscriber) closes its _named pipe_, implicitly signaling the end of the session;
+2. The box is removed by the manager.
 
-O servidor aceita um número máximo de sessões em simultâneo, definido pelo valor do argumento `max_sessions`.
+The server accepts a maximum number of simultaneous sessions, defined by the `max_sessions` argument.
 
-Nas subsecções seguintes descrevemos o protocolo cliente-servidor em maior detalhe, i.e., o conteúdo das mensagens de pedido e resposta trocadas entre clientes e servidor.
+In the following subsections, we describe the client-server protocol in more detail, i.e., the content of the request and response messages exchanged between clients and the server.
 
-#### 1.1.1. Arquitectura do servidor
+#### 1.1.1. Server Architecture
 
-O servidor deve ter uma _thread_ para gerir o _named pipe_ de registo e lançar `max_sessions` threads para processar sessões.
-Quando chega um novo pedido de registo, este deve ser enviado para uma _thread_ que se encontre disponível, que irá processá-lo durante o tempo necessário.
-Para gerir estes pedidos, evitando que as _threads_ fiquem em espera ativa, a _main thread_ e as _worker threads_ cooperam utilizando uma **fila produtor-consumidor**, segundo a interface disponibilizada no ficheiro `producer-consumer.h`.
-Desta forma, quando chega um novo pedido de registo, este é colocado na fila e assim que uma _thread_ fique disponível, irá consumir e tratar esse pedido.
+The server must have a thread to manage the registration _named pipe_ and launch `max_sessions` threads to process sessions.
+When a new registration request arrives, it should be sent to an available thread, which will process it for the necessary time.
+To manage these requests, avoiding threads from being in active wait, the _main thread_ and the _worker threads_ cooperate using a **producer-consumer queue**, according to the interface provided in the `producer-consumer.h` file.
+Thus, when a new registration request arrives, it is placed in the queue, and as soon as a thread becomes available, it will consume and process that request.
 
-A arquitetura do servidor está sumarizada na seguinte figura:
+The server's architecture is summarized in the following figure:
 
 ![](img/architecture_proj2.png)
 
-- O _mbroker_ usa o TFS para armazenar as mensagens das caixas;
-- A _main thread_ recebe pedidos através do _register pipe_ e coloca-os numa fila de produtor-consumidor;
-- As _worker threads_ executam os pedidos dos clientes, dedicando-se a atender um cliente de cada vez;
-- Cooperam com a _main thread_ através de uma fila produtor-consumidor, que evita espera ativa.
+- The _mbroker_ uses TFS to store messages from the boxes;
+- The _main thread_ receives requests through the _register pipe_ and places them in a producer-consumer queue;
+- The _worker threads_ execute client requests, dedicating themselves to serving one client at a time;
+- They cooperate with the _main thread_ through a producer-consumer queue, avoiding active waiting.
 
-### 1.2. _Publisher_
+### 1.2. Publisher
 
-Um publicador é um processo lançado da seguinte forma:
+A publisher is a process launched as follows:
 
 ```sh
 pub <register_pipe> <pipe_name> <box_name>
 ```
 
-Assim que é lançado, o _publisher_, pede para iniciar uma sessão no servidor de _mbroker_, indicando a caixa de mensagens para a qual pretende escrever mensagens.
-Se a ligação for aceite (pode ser rejeitada caso já haja um _publisher_ ligado à caixa, por exemplo) fica a receber mensagens do `stdin` e depois publica-as.
-Uma **mensagem** corresponde a uma linha do `stdin`, sendo truncada a um dado valor máximo e delimitada por um `\0`, como uma _string_ de C.
-A mensagem não deve incluir um `\n` final.
+Once launched, the _publisher_ requests to start a session on the _mbroker_ server, indicating the message box to which it intends to write messages.
+If the connection is accepted (it can be rejected if there is already a _publisher_ connected to the box, for example), it starts receiving messages from `stdin` and then publishes them.
+A **message** corresponds to a line from `stdin`, truncated to a given maximum value and delimited by a `\0`, like a C string.
+The message should not include a final `\n`.
 
-Se o _publisher_ receber um EOF (_End Of File_, por exemplo, com um Ctrl-D), deve encerrar a sessão fechando o _named pipe_.
+If the _publisher_ receives an EOF (End Of File, for example, with a Ctrl-D), it should end the session by closing the _named pipe_.
 
-O nome do _named pipe_ da sessão é escolhido automaticamente pelo _publisher_, de forma a garantir que não existem conflitos com outros clientes concorrentes.
-O _named pipe_ deve ser removido do sistema de ficheiros após o fim da sessão.
+The session's _named pipe_ is automatically chosen by the _publisher_ to ensure there are no conflicts with other concurrent clients.
+The _named pipe_ must be removed from the file system after the end of the session.
 
-### 1.3. _Subscriber_
+### 1.3. Subscriber
 
-Um subscritor é um processo lançado da seguinte forma:
+A subscriber is a process launched as follows:
 
 ```sh
 sub <register_pipe> <pipe_name> <box_name>
 ```
 
-Assim que é lançado, o _subscriber_:
+Once launched, the _subscriber_:
 
-1. Liga-se à _mbroker_, indicando qual a caixa de mensagens que pretende subscrever;
-2. Recolhe as mensagens já aí armazenadas e imprime-as uma a uma no `stdout`, delimitadas por `\n`;
-3. Fica à escuta de novas mensagens;
-4. Imprime novas mensagens quando são escritas para o _named pipe_ para o qual tem uma sessão aberta.
+1. Connects to _mbroker_, indicating which message box it wants to subscribe to;
+2. Collects the messages already stored there and prints them one by one to `stdout`, delimited by `\n`;
+3. Listens for new messages;
+4. Prints new messages when they are written to the _named pipe_ for which it has an open session.
 
-Para terminar o _subscriber_, este deve processar adequadamente o `SIGINT` (i.e., o Ctrl-C), fechando a sessão e imprimindo no `stdout` o número de mensagens recebidas durante a sessão.
+To terminate the _subscriber_, it must handle `SIGINT` properly (i.e., Ctrl-C), closing the session and printing to `stdout` the number of messages received during the session.
 
-O nome do _named pipe_ da sessão é escolhido automaticamente pelo _subscriber_, de forma a garantir que não existem conflitos com outros clientes concorrentes.
-O _named pipe_ deve ser removido do sistema de ficheiros após o fim da sessão.
+The session's _named pipe_ is automatically chosen by the _subscriber_ to ensure there are no conflicts with other concurrent clients.
+The _named pipe_ must be removed from the file system after the end of the session.
 
-### 1.4. _Manager_
+### 1.4. Manager
 
-Um gestor é um processo lançado de uma das seguintes formas:
+A manager is a process launched in one of the following ways:
 
 ```sh
 manager <register_pipe> <pipe_name> create <box_name>
@@ -127,192 +110,168 @@ manager <register_pipe> <pipe_name> remove <box_name>
 manager <register_pipe> <pipe_name> list
 ```
 
-Assim que é lançado, o _manager_:
+Once launched, the _manager_:
 
-1.  Envia o pedido à _mbroker_;
-2.  Recebe a resposta no _named pipe_ criado pelo próprio _manager_;
-3.  Imprime a resposta e termina.
+1. Sends the request to _mbroker_;
+2. Receives the response in the _named pipe_ created by the manager itself;
+3. Prints the response and terminates.
 
-O nome do _named pipe_ da sessão é escolhido automaticamente pelo _manager_, de forma a garantir que não existem conflitos com outros clientes concorrentes.
-O _named pipe_ deve ser removido do sistema de ficheiros antes do _manager_ terminar.
+The session's _named pipe_ is automatically chosen by the _manager_ to ensure there are no conflicts with other concurrent clients.
+The _named pipe_ must be removed from the file system before the _manager_ terminates.
 
-### 1.5. Exemplos de execução
+### 1.5. Execution Examples
 
-Um primeiro **exemplo** considera o funcionamento **sequencial** dos clientes:
+A first **example** considers the **sequential** operation of clients:
 
-1.  Um _manager_ cria a caixa `bla`;
-2.  Um _publisher_ liga-se à mesma caixa, escreve 3 mensagens e desliga-se;
-3.  Um _subscriber_ liga-se à mesma caixa e começa a receber mensagens;
-4.  Recebe as três, uma de cada vez, e depois fica à espera de mais mensagens.
+1. A manager creates the `bla` box;
+2. A publisher connects to the same box, writes 3 messages, and disconnects;
+3. A subscriber connects to the same box and starts receiving messages;
+4. Receives all three, one at a time, and then waits for more messages.
 
-Num segundo **exemplo**, mais interessante, vai existir **concorrência** entre clientes:
+In a second, more interesting **example**, there will be **concurrency** between clients:
 
-1.  Um _publisher_ liga-se;
-2.  Entretanto, um _subscriber_ para a mesma caixa, liga-se também;
-3.  O _publisher_ coloca mensagens na caixa e estas vão sendo entregues imediatamente ao _subscriber_, ficando à mesma registadas no ficheiro;
-4.  Um outro _subscriber_ liga-se à mesma caixa, e começa a receber as mensagens todas desde o início da sua subscrição;
-5.  Agora, quando o _publisher_ escreve uma nova mensagem, ambos os _subscriber_ recebem a mensagem diretamente.
+1. A publisher connects;
+2. Meanwhile, a subscriber for the same box also connects;
+3. The publisher places
 
-## 2. Protocolo
+ messages in the box, and these are immediately delivered to the subscriber, remaining registered in the file;
+4. Another subscriber connects to the same box and starts receiving all messages from the beginning of its subscription;
+5. Now, when the publisher writes a new message, both subscribers receive the message directly.
 
-Para moderar a interação entre o servidor e os clientes, é estabelecido um protocolo, que define como é que as mensagens são serializadas, ou seja, como é que ficam arrumadas num _buffer_ de _bytes_.
-Este tipo de protocolo é por vezes referido como um _wire protocol_, numa alusão aos dados que efetivamente circulam no meio de transmissão, que neste caso, serão os _named pipes_.
+## 2. Protocol
 
-O conteúdo de cada mensagem deve seguir o seguinte formato, onde:
+To moderate the interaction between the server and clients, a protocol is established, defining how messages are serialized, i.e., how they are arranged in a byte buffer.
+This type of protocol is sometimes referred to as a _wire protocol_, alluding to the data that effectively circulates in the transmission medium, which in this case, will be the _named pipes_.
 
-- O símbolo `|` denota a concatenação de elementos numa mensagem;
-- Todas as mensagens de pedido são iniciadas por um código que identifica a operação solicitada (`OP_CODE`);
-- As _strings_ que transportam os nomes de _named pipes_ são de tamanho fixo, indicado na mensagem.
-  No caso de nomes de tamanho inferior, os caracteres adicionais devem ser preenchidos com `\0`.
+The content of each message should follow the following format, where:
 
-### 2.1. Registo
+- The symbol `|` denotes the concatenation of elements in a message;
+- All request messages are initiated by a code that identifies the requested operation (`OP_CODE`);
+- The strings carrying the names of _named pipes_ are of fixed size, indicated in the message.
+  In the case of names of smaller size, additional characters should be filled with `\0`.
 
-O _named pipe_ do servidor, que só recebe registos de novos clientes, deve receber mensagens do seguinte tipo:
+### 2.1. Registration
 
-Pedido de registo de _publisher_:
+The server's _named pipe_, which only receives registrations from new clients, must receive messages of the following type:
+
+Publisher registration request:
 
 ```
 [ code = 1 (uint8_t) ] | [ client_named_pipe_path (char[256]) ] | [ box_name (char[32]) ]
 ```
 
-Pedido de registo de _subscriber_:
+Subscriber registration request:
 
 ```
 [ code = 2 (uint8_t) ] | [ client_named_pipe_path (char[256]) ] | [ box_name (char[32]) ]
 ```
 
-Pedido de criação de caixa:
+Box creation request:
 
 ```
 [ code = 3 (uint8_t) ] | [ client_named_pipe_path (char[256]) ] | [ box_name (char[32]) ]
 ```
 
-Resposta ao pedido de criação de caixa:
+Response to the box creation request:
 
 ```
 [ code = 4 (uint8_t) ] | [ return_code (int32_t) ] | [ error message (char[1024]) ]
 ```
 
-O return code deve ser `0` se a caixa foi criada com sucesso, e `-1` em caso de erro.
-Em caso de erro a mensagem de erro é enviada (caso contrário, fica simplesmente inicializada com `\0`).
+The return code should be `0` if the box was successfully created and `-1` in case of an error.
+In case of an error, the error message is sent (otherwise, it is simply initialized with `\0`).
 
-Pedido de remoção de caixa:
+Box removal request:
 
 ```
 [ code = 5 (uint8_t) ] | [ client_named_pipe_path (char[256]) ] | [ box_name (char[32]) ]
 ```
 
-Resposta ao pedido de remoção de caixa:
+Response to the box removal request:
 
 ```
 [ code = 6 (uint8_t) ] | [ return_code (int32_t) ] | [ error message (char[1024]) ]
 ```
 
-Pedido de listagem de caixas:
+Box listing request:
 
 ```
 [ code = 7 (uint8_t) ] | [ client_named_pipe_path (char[256]) ]
 ```
 
-A resposta à listagem de caixas vem em várias mensagens, do seguinte tipo:
+The response to the box listing comes in several messages, of the following type:
 
 ```
 [ code = 8 (uint8_t) ] | [ last (uint8_t) ] | [ box_name (char[32]) ] | [ box_size (uint64_t) ] | [ n_publishers (uint64_t) ] | [ n_subscribers (uint64_t) ]
 ```
 
-O byte `last` é `1` se esta for a última caixa da listagem e a `0` em caso contrário.
-`box_size` é o tamanho (em _bytes_) da caixa, com `n_publisher` (`0` ou `1`) indicando se existe um _publisher_ ligado à caixa naquele momento, e `n_subscriber` o número de subscritores da caixa naquele momento.
+The `last` byte is `1` if this is the last box in the listing and `0` otherwise.
+`box_size` is the size (in _bytes_) of the box, with `n_publisher` (`0` or `1`) indicating whether a _publisher_ is connected to the box at that moment, and `n_subscriber` the number of subscribers to the box at that moment.
 
-### 2.2 _Publisher_
+### 2.2 Publisher
 
-O _publisher_ envia mensagens para o servidor do tipo:
+The _publisher_ sends messages to the server of the following type:
 
 ```
 [ code = 9 (uint8_t) ] | [ message (char[1024]) ]
 ```
 
-### 2.3 _Subscriber_
+### 2.3 Subscriber
 
-O servidor envia mensagens para o _subscriber_ do tipo:
+The server sends messages to the _subscriber_ of the following type:
 
 ```
 [ code = 10 (uint8_t) ] | [ message (char[1024]) ]
 ```
 
-## 3. Requisitos de implementação
+## 3. Implementation Requirements
 
-### 3.1. Tratamento de clientes
+### 3.1. Client Handling
 
-Quando o servidor inicia, lança um conjunto de `S` tarefas (_thread pool_), que ficam à espera de pedidos de registo para tratar, que irão receber através da fila produtor-consumidor.
-A _main thread_ gere o _named pipe_ de registo, e coloca os pedidos de registo na fila produtor-consumidor.
-Quando uma _thread_ termina uma sessão, fica à espera de nova sessão para tratar.
+When the server starts, it launches a set of `S` tasks (thread pool) waiting for registration requests to process, which they will receive through the producer-consumer queue.
+The _main thread_ manages the registration _named pipe_ and places the registration requests in the producer-consumer queue.
+When a thread ends a session, it waits for a new session to process.
 
-### 3.2 Caixas de armazenamento
+### 3.2 Storage Boxes
 
-As mensagens recebidas pelo servidor devem ser colocadas numa caixa.
-Na prática, uma caixa corresponde a um ficheiro no TecnicoFS.
-O ficheiro deve ser criado quando a caixa for criada pelo _manager_, e apagado quando a caixa for removida.
-Todas as mensagens que vão sendo recebidas são escritas no fim do ficheiro, separadas por `\0`.
+Messages received by the server should be placed in a box.
+In practice, a box corresponds to a file in TecnicoFS.
+The file must be created when the box is created by the manager and deleted when the box is removed.
+All received messages are written to the end of the file, separated by `\0`.
 
-Resumindo, as mensagens são acumuladas nas caixas.
-Quando um subscritor se liga a uma caixa, o ficheiro correspondente é aberto e as mensagens começam a ser lidas desde o início (mesmo que o mesmo subscritor ou outro já as tenha recebido antes).
-Ulteriores mensagens geradas pelo _publisher_ de uma caixa deverão ser também entregues aos _subscribers_ da caixa.
-Esta funcionalidade deverá ser implementada usando **variáveis de condição** com o objetivo de evitar esperas ativas.
+In summary, messages accumulate in the boxes.
+When a subscriber connects to a box, the corresponding file is opened, and the messages begin to be read from the beginning (even if the same subscriber or another has received them before).
+Subsequent messages generated by the _publisher_ of a box should also be delivered to the subscribers of the box.
+This functionality should be implemented using **condition variables** to avoid active waits.
 
-### 3.3 Formatação de mensagens
+### 3.3 Message Formatting
 
-Para uniformizar o _output_ dos diversos comandos (para o `stdout`), é fornecido o formato com que estas devem ser impressas.
+To standardize the output of various commands (to `stdout`), the format in which they should be printed is provided.
 
-### 3.4 Fila Produtor-Consumidor
+### 3.4 Producer-Consumer Queue
 
-A fila produtor-consumidor é a estrutura de sincronização mais complexa do projeto.
-Por isso, esta componente vai ser avaliada em isolamento (i.e., existirão testes que usam apenas a interface descrita no `producer-consumer.h`) para garantir a sua correção.
-Como tal, a interface do `producer-consumer.h` não deve ser alterada.
+The producer-consumer queue is the most complex synchronization structure in the project.
+Therefore, this component will be evaluated in isolation (i.e., there will be tests that use only the interface described in `producer-consumer.h`) to ensure its correctness.
+As such, the interface of `producer-consumer.h` should not be changed.
 
-De resto, os grupos são livres de alterar o código base como lhes for conveniente.
+Apart from that, groups are free to change the base code as they see fit.
 
-#### Mensagens do subscritor
+#### Subscriber Messages
 
 ```c
 fprintf(stdout, "%s\n", message);
 ```
 
-#### Listagem de caixas
+#### Box Listing
 
-Cada linha da listagem de caixas deve ser impressa da seguinte forma:
+Each line of the box listing should be printed as follows:
 
 ```c
 fprintf(stdout, "%s %zu %zu %zu\n", box_name, box_size, n_publishers, n_subscribers);
 ```
 
-As caixas devem estar ordenadas por ordem alfabética, não sendo garantido que o servidor as envie por essa ordem (i.e., o cliente deve ordenar as caixas antes das imprimir).
+Boxes should be sorted in alphabetical order, and it is not guaranteed that the server will send them in that order (i.e., the client must sort the boxes before printing them).
 
-### 3.5 Espera Ativa
+### 3.5 Active Waiting
 
-No projeto, nunca devem ser usados mecanismos de espera ativa.
-
-## 4. Sugestão de implementação
-
-Sugere-se que implementem o projeto através dos seguintes passos:
-
-1. Implementar as interfaces de linha de comando (CLI) dos clientes;
-2. Implementar a serialização do protocolo de comunicação;
-3. Implementar uma versão básica do `mbroker`, onde só existe uma _thread_ que, em ciclo, a) recebe um pedido de registo; b) trata a sessão correspondente; e c) volta a ficar à espera do pedido de registo;
-4. Implementar a fila produtor-consumidor;
-5. Utilizar a fila produtor-consumidor para gerir e encaminhar os pedidos de registo para as _worker threads_.
-
-## 5. Submissão e avaliação
-
-A submissão é feita através do Fénix **até sexta-feira, dia 13/Janeiro/2023, às 20h00**.
-
-Os estudantes devem submeter um ficheiro no formato `zip` com o código fonte e o ficheiro `Makefile`.
-O arquivo submetido não deve incluir outros ficheiros (tais como binários).
-Além disso, o comando `make clean` deve limpar todos os ficheiros resultantes da compilação do projeto, bem como o comando `make fmt`, para formatar automaticamente o código.
-
-Recomendamos que os alunos se assegurem que o projeto compila/corre corretamente no [ambiente de referência](https://github.com/tecnico-so/lab_ambiente).
-Ao avaliar os projetos submetidos, em caso de dúvida sobre o funcionamento do código submetido, os docentes usarão o ambiente de referência para fazer a validação final.
-O uso de outros ambientes para o desenvolvimento/teste do projeto (e.g., macOS, Windows/WSL) é permitido, mas o corpo docente não dará apoio técnico a dúvidas relacionadas especificamente com esses ambientes.
-
-A avaliação será feita de acordo com o método de avaliação descrito no Fénix
-
-_Bom trabalho!_
+In the project, active waiting mechanisms should never be used.
